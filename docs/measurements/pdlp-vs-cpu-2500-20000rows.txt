@@ -1,0 +1,16 @@
+GPU: NVIDIA GeForce RTX 3050 A Laptop GPU (CC 8.9, 14 SMs)
+eps = 1e-06   restart period = 256   time limit = 60.0 s
+
+    instance   rows   cols      nnz | PDLP iter   syncs  rstrt  PDLP sec |  KKT worst   obj err |  CPU sec verdict
+------------------------------------------------------------------------------------------------------------------------------------
+      dfl001   6071  12230    35632 |     17152     136     13     1.130 |   8.65e-07  3.50e-06 |  792.160 CONVERGED BUT OFF
+       fit2p   3000  13525    50284 |     18944     150     11     1.372 |   9.54e-07  3.78e-08 |    6.879 OPTIMAL
+    stocfor3  16675  15695    68627 |    207616    1624     19    13.290 |   9.77e-07  5.08e-07 |   13.618 OPTIMAL
+    maros-r7   3136   9408   144848 |      8448      68      7     0.934 |   6.12e-07  1.35e-07 |    3.845 OPTIMAL
+
+====================================================================================================================================
+attempted 4   converged 4   converged AND within 1e-6 of the published optimum 3
+on converged instances: PDLP 16.726 s total
+where the CPU simplex also ran: PDLP 16.726 s   CPU 816.502 s   (PDLP 48.82x)
+iterations 252160 across 1978 host syncs -- 127 iterations per sync
+LARGECPUDONE
