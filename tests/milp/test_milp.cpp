@@ -57,6 +57,20 @@ MilpProblem impossible_integer_equality() {
     return MilpProblem{std::move(lp), {VariableType::INTEGER}};
 }
 
+MilpProblem mixed_nonnegative_packing_row() {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(
+        1, 3, {Triplet{0, 0, 6.0}, Triplet{0, 1, 5.0}, Triplet{0, 2, 1.0}});
+    lp.obj = {-10.0, -9.0, 0.0};
+    lp.rhs = {7.0};
+    lp.row_types = {'L'};
+    lp.lower = {0.0, 0.0, 0.0};
+    lp.upper = {1.0, 1.0, 10.0};
+    sihps::apply_default_row_bounds(lp);
+    return MilpProblem{std::move(lp),
+                       {VariableType::BINARY, VariableType::BINARY, VariableType::CONTINUOUS}};
+}
+
 } // namespace
 
 SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
@@ -118,6 +132,16 @@ SIHPS_TEST(milp_root_cover_cut_is_valid_and_improves_the_root_relaxation) {
     MilpSolverOptions options;
     options.use_rounding_heuristic = false;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.root_cover_cuts >= 1);
+    SIHPS_ASSERT_NEAR(result.objective_value, -10.0, 1e-8);
+}
+
+SIHPS_TEST(milp_mixed_nonnegative_packing_row_gets_valid_cover_cut) {
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    const auto result = sihps::solve_milp(mixed_nonnegative_packing_row(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
     SIHPS_ASSERT_TRUE(result.root_cover_cuts >= 1);

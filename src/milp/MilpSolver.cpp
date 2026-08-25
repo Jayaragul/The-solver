@@ -187,19 +187,24 @@ std::vector<CoverCut> separate_root_cover_cuts(const MilpProblem& problem,
         std::vector<Term> terms;
         const std::int32_t begin = lp.A.row_ptr()[i];
         const std::int32_t end = lp.A.row_ptr()[i + 1];
-        bool pure_binary_knapsack = true;
+        bool valid_nonnegative_packing_row = true;
         for (std::int32_t k = begin; k < end; ++k) {
             const auto kk = static_cast<std::size_t>(k);
             const std::int32_t j = lp.A.col_idx()[kk];
             const auto jj = static_cast<std::size_t>(j);
-            if (problem.variable_types[jj] != VariableType::BINARY ||
-                lp.lower[jj] > 0.0 || lp.upper[jj] < 1.0 || lp.A.values()[kk] <= 0.0) {
-                pure_binary_knapsack = false;
+            // The cover proof only needs an upper-bounded packing row: every
+            // non-cover term must be nonnegative over its variable domain.
+            // Binary terms are the only terms lifted into the cut; integer
+            // and continuous terms may safely remain outside it.
+            if (lp.lower[jj] < 0.0 || lp.A.values()[kk] <= 0.0) {
+                valid_nonnegative_packing_row = false;
                 break;
             }
-            terms.push_back({j, lp.A.values()[kk], x[jj]});
+            if (problem.variable_types[jj] == VariableType::BINARY) {
+                terms.push_back({j, lp.A.values()[kk], x[jj]});
+            }
         }
-        if (!pure_binary_knapsack || terms.size() < 2) continue;
+        if (!valid_nonnegative_packing_row || terms.size() < 2) continue;
         std::sort(terms.begin(), terms.end(), [](const Term& lhs, const Term& rhs) {
             if (lhs.value != rhs.value) return lhs.value > rhs.value;
             return lhs.variable < rhs.variable;

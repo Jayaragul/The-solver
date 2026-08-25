@@ -53,17 +53,19 @@ re-solve. The sparse matrix is copied once for the solve and then reused;
 node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
-## 2. Cuts (implemented root cover subset)
+## 2. Cuts (implemented root mixed-row cover subset)
 
 The first cut implementation is deliberately narrow and auditable: root-only
-cover inequalities for rows that are pure positive-coefficient binary
-knapsacks. For a cover $C$ with $\sum_{j\in C} a_j > b$, it adds the valid
-inequality $\sum_{j\in C} x_j \le |C|-1$. Mixed rows, negative coefficients,
-continuous variables, and non-unit binary bounds are rejected by the
-separator rather than approximated. Cuts are globally valid and remain active
-in descendants; they are generated once at the root and counted separately.
+cover inequalities for upper-bounded packing rows whose variables have
+nonnegative domains and positive coefficients. Only binary terms are selected
+for a cover, so nonnegative integer/continuous terms may safely remain outside
+the cut. For a cover $C$ with $\sum_{j\in C} a_j > b$, it adds the valid
+inequality $\sum_{j\in C} x_j \le |C|-1$. Rows with negative coefficients or
+variables that can be negative are rejected by the separator rather than
+approximated. Cuts are globally valid and remain active in descendants; they
+are generated once at the root and counted separately.
 
-MIR and flow-cover separation for general mixed rows remains a future
+General MIR and flow-cover strengthening for mixed rows remains a future
 extension. It requires a full row-bound transformation and independent
 validity tests before it can be enabled, so the current implementation does
 not claim that broader cut family.
@@ -71,8 +73,9 @@ not claim that broader cut family.
 ```cpp
 class CutManager {
 public:
-    // Current implementation: root-only pure-binary cover separation.
-    // General MIR/flow-cover separation is intentionally not implied here.
+    // Current implementation: root-only nonnegative mixed-row cover
+    // separation; only binary terms enter each cover inequality.
+    // General MIR/flow-cover strengthening is intentionally not implied here.
     std::vector<Cut> separate(const LPResult& fractional_solution);
 };
 ```

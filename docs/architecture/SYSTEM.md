@@ -138,7 +138,7 @@ A `reason` / `reason_row` / `reason_col` / `reason_pass` field on `PresolveResul
 **Owns:** the cut pool (generated valid inequalities, active/inactive status, age-based eviction policy).
 **Consumes:** a fractional LP solution at a B&B node.
 **Produces:** violated cuts to append to the node's local relaxation.
-**Residency:** CPU (separation is control-flow-heavy; see SOTA.md kill-shot KS-5). The current implementation separates root-only pure-binary cover inequalities; mixed-row MIR/flow-cover separation remains disabled until its validity transformations and benchmarks are independently validated.
+**Residency:** CPU (separation is control-flow-heavy; see SOTA.md kill-shot KS-5). The current implementation separates root-only valid cover inequalities from nonnegative mixed packing rows; general mixed-row MIR/flow-cover strengthening remains disabled until its validity transformations and benchmarks are independently validated.
 
 ### 2.10 Primal Heuristics
 
