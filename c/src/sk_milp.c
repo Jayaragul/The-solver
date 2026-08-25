@@ -298,12 +298,21 @@ static sk_result milp_solve_lp(milp *M, double *obj_out)
     return M->ls.result;
 }
 
-static void milp_accept(milp *M, const double *x, double obj)
+static int milp_accept(milp *M, const double *x, double obj)
 {
+    sk_solution probe;
+    int j;
+    sk_solution_init(&probe);
+    probe.x = (double *)x;
+    if (sk_verify(M->m, &probe) != SK_OK ||
+        probe.primal_infeasibility > 100.0 * M->lp_opt.primal_tol) return 0;
+    for (j = 0; j < M->m->ncol; ++j)
+        if (is_int_var(M->m, j) && fabs(x[j] - round(x[j])) > 100.0 * MILP_INT_TOL) return 0;
     memcpy(M->incumbent, x, (size_t)M->m->ncol * sizeof(double));
     M->incumbent_obj = obj;
     M->have_incumbent = 1;
     M->st.solutions_found++;
+    return 1;
 }
 
 /* Round the integers of the current relaxation, fix them, and re-solve for the
@@ -336,8 +345,7 @@ static void milp_heuristic_round(milp *M, const double *xrel)
         r = milp_solve_lp(M, &obj);
         if (r == SK_RESULT_OPTIMAL && M->ls.primal_infeasibility <= 1e-6 &&
             (!M->have_incumbent || obj < M->incumbent_obj - 1e-12)) {
-            milp_accept(M, M->ls.x, obj);
-            M->st.heuristic_hits++;
+            if (milp_accept(M, M->ls.x, obj)) M->st.heuristic_hits++;
         }
     }
     memcpy(M->nlow, savelo, (size_t)m->ncol * sizeof(double));
