@@ -3,9 +3,7 @@
 #include "Scaling.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
-#include <thread>
 #include <cmath>
 
 namespace sihps {
@@ -23,12 +21,13 @@ double vector_inf_norm(const std::vector<double>& v) {
 }
 
 // Row and column feasibility of `x` against the ORIGINAL model.
-double original_space_primal_residual(const LpProblem& problem, const std::vector<double>& x) {
+double original_space_primal_residual(const LpProblem& problem, const std::vector<double>& x,
+                                      ParallelMode parallel_mode) {
     const std::int32_t m = problem.n_rows();
     const std::int32_t n = problem.n_cols();
 
     std::vector<double> ax(static_cast<std::size_t>(m), 0.0);
-    if (n > 0 && m > 0) problem.A.multiply(x.data(), ax.data());
+    if (n > 0 && m > 0) problem.A.multiply(x.data(), ax.data(), parallel_mode);
 
     double row_violation = 0.0;
     for (std::int32_t i = 0; i < m; ++i) {
@@ -99,6 +98,30 @@ bool run_first_order(const LpProblem& target, const PdlpParams& params, std::vec
     return stats_out.converged;
 }
 
+// The original-space feasibility gate of NUMERICS.md 6, factored out so
+// that LpMethod::HYBRID can apply it to a candidate BEFORE committing to
+// it. Returns the residual; the caller compares against kFinalPrimalTol.
+//
+// This exists because of a measured defect. When the first-order path leads
+// and converges on its own KKT test, that is a claim about the SCALED,
+// PRESOLVED problem. It can still fail the original-space gate -- `dfl001`
+// with a fixed step size converged to a relative objective error of 4.2e-07
+// and was then rejected here. In the first version of the structure-aware
+// hybrid that rejection was terminal: the simplex was never tried, and a
+// model the simplex solves comfortably was reported NUMERICAL_FAILURE.
+//
+// Convergence and verification are different questions, and a fallback
+// keyed only on the first is not a fallback.
+double candidate_primal_residual(const LpProblem& problem, const PresolveResult& reduction,
+                                  bool use_presolve, const std::vector<double>& reduced_x,
+                                  std::int32_t n, ParallelMode parallel_mode) {
+    std::vector<double> x = use_presolve ? postsolve(reduction, reduced_x) : reduced_x;
+    if (static_cast<std::int32_t>(x.size()) != n) {
+        x.resize(static_cast<std::size_t>(n), 0.0);
+    }
+    return original_space_primal_residual(problem, x, parallel_mode);
+}
+
 } // namespace
 
 LpSolution solve_lp(const LpProblem& problem, const LpSolverOptions& options) {
@@ -154,69 +177,94 @@ LpSolution solve_lp(const LpProblem& problem, const LpSolverOptions& options) {
         solution.status = ok ? LpStatus::OPTIMAL : LpStatus::ITERATION_LIMIT;
     } else if (options.method == LpMethod::HYBRID) {
         // ---------------------------------------------------------------
-        // THE RACE
+        // HYBRID: structure-aware lead, with the other method as fallback
         // ---------------------------------------------------------------
-        // The two methods fail on disjoint, unpredictable sets of models,
-        // and -- crucially -- they contend for almost no shared hardware:
-        // the simplex is CPU-bound and PDLP is GPU-bound. Running them
-        // concurrently and taking the first VERIFIED result therefore costs
-        // roughly max(0, overhead) rather than the sum of both, and turns
-        // the engine's wall clock into min(simplex, pdlp) per instance.
+        // Two methods that fail on disjoint sets of models, and a cheap
+        // feature that says which is likely to win. Whichever leads runs
+        // under a budget; if it does not return a usable answer the other
+        // one gets the instance. A wrong prediction therefore costs one
+        // budget, never a wrong answer.
         //
-        // Sequential fallback was tried first and rejected: on `dfl001` the
-        // simplex grinds for 792 s before conceding, so simplex-then-PDLP
-        // costs 794 s where the race costs about 3 s.
+        // The predictor is row count after presolve, and it was measured
+        // rather than assumed -- see LpSolverOptions for the data and for
+        // why nonzero count is the wrong feature.
         //
-        // Neither competitor is trusted on its own say-so. Whoever finishes
-        // first only sets the cancel flag; the answer still has to clear
-        // the same original-space verification gate below.
-        // Only a CONVERGED first-order result may cancel the simplex.
-        //
-        // The first version of this raced on "the GPU thread finished",
-        // which is a different and much weaker condition: PDLP exhausting
-        // its 500,000 iterations without converging also finishes, and it
-        // was killing simplex solves that were about to succeed. That took
-        // Netlib validation from 92/93 down to 86/93 -- `stocfor3`,
-        // `pilot87`, `dfl001`, `pilot`, `woodw`, `d2q06c` and `greenbeb`
-        // all reported ITERATION_LIMIT after roughly 60 s with only a few
-        // thousand iterations and no refactorizations, which is the
-        // signature of a cancelled solve rather than a stalled one.
-        //
-        // A loser must never be able to stop a winner. Each side now
-        // cancels the other only on a result it could actually return.
-        std::atomic<bool> pdlp_succeeded{false};
-        std::atomic<bool> simplex_done{false};
+        // THIS IS THE THIRD DESIGN. The first raced the two solvers
+        // concurrently and lost to CPU contention (92/93 -> 91/93, `woodw`
+        // 0.174 s -> 5.6 s). The second always led with the simplex, which
+        // is correct on Netlib and badly wrong at scale: it picks the 18x
+        // slower path on `ken-11` by construction, and costs 419.9 s across
+        // the Kennington set where choosing per instance costs 56.0 s.
+        const bool first_order_leads =
+            target->n_rows() >= options.hybrid_first_order_row_threshold;
 
-        std::vector<double> pdlp_x;
         PdlpStats pdlp_stats;
+        std::vector<double> pdlp_x;
+        bool pdlp_ok = false;
 
-        PdlpParams pdlp_params = options.pdlp;
-        pdlp_params.cancel = &simplex_done;
-
-        std::thread gpu_thread([&]() {
-            bool ok = false;
-            try {
-                ok = run_first_order(*target, pdlp_params, pdlp_x, pdlp_stats);
-            } catch (const std::exception&) {
-                ok = false;
+        // Runs the first-order solver under its budget. Kept as a lambda so
+        // the two orderings below differ only in sequence, not in behaviour.
+        auto try_first_order = [&]() {
+            PdlpParams fo = options.pdlp;
+            fo.eps_optimal = options.hybrid_first_order_eps;
+            if (options.hybrid_first_order_budget_seconds > 0.0) {
+                fo.time_limit_seconds = options.hybrid_first_order_budget_seconds;
             }
-            if (ok) pdlp_succeeded.store(true, std::memory_order_release);
-        });
+            try {
+                pdlp_ok = run_first_order(*target, fo, pdlp_x, pdlp_stats);
+            } catch (const std::exception&) {
+                pdlp_ok = false;
+            }
+            // Converging is not the same as being acceptable. PDLP's KKT
+            // test is a statement about the scaled, presolved problem; the
+            // caller's problem is what actually has to be satisfied. Check
+            // it HERE, while the simplex is still available as a fallback,
+            // rather than after the point of no return.
+            if (pdlp_ok) {
+                const double residual = candidate_primal_residual(
+                    problem, reduction, options.use_presolve, pdlp_x, n, options.parallel_mode);
+                if (!(residual <= kFinalPrimalTol)) pdlp_ok = false;
+            }
+            return pdlp_ok;
+        };
 
-        Simplex simplex(*target, options.backend, options.use_ruiz_scaling, options.pricing_rule,
-                         options.algorithm);
-        simplex.set_cancel_flag(&pdlp_succeeded);
-        LpResult lp = simplex.solve();
-        const bool simplex_won = lp.status == LpStatus::OPTIMAL ||
-                                  lp.status == LpStatus::INFEASIBLE ||
-                                  lp.status == LpStatus::UNBOUNDED;
-        if (simplex_won) simplex_done.store(true, std::memory_order_release);
+        LpResult lp;
+        bool simplex_ran = false;
+        auto try_simplex = [&]() {
+            Simplex simplex(*target, options.backend, options.use_ruiz_scaling,
+                             options.pricing_rule, options.algorithm, options.parallel_mode);
+            simplex.set_time_budget(options.hybrid_simplex_budget_seconds);
+            lp = simplex.solve();
+            simplex_ran = true;
+            // INFEASIBLE and UNBOUNDED are proofs. Handing either to an
+            // approximate method would trade a certificate for a guess.
+            return lp.status == LpStatus::OPTIMAL || lp.status == LpStatus::INFEASIBLE ||
+                   lp.status == LpStatus::UNBOUNDED;
+        };
 
-        gpu_thread.join();
+        bool solved_by_first_order = false;
+        if (first_order_leads) {
+            solved_by_first_order = try_first_order();
+            if (!solved_by_first_order) try_simplex();
+        } else {
+            if (!try_simplex()) solved_by_first_order = try_first_order();
+        }
 
-        if (simplex_won) {
+        if (solved_by_first_order) {
+            solution.used_first_order = true;
+            solution.first_order_fallback_used = !first_order_leads;
+            solution.pdlp = pdlp_stats;
+            solution.iterations = pdlp_stats.iterations;
+            // Provisional. The original-space gate below is the authority
+            // on whether this is acceptable, exactly as for a simplex
+            // result -- nothing is trusted because a solver stopped.
+            solution.status = LpStatus::OPTIMAL;
+            reduced_x = std::move(pdlp_x);
+            if (simplex_ran) solution.refactorizations = lp.refactorizations;
+        } else if (simplex_ran) {
             solution.status = lp.status;
-            solution.iterations = lp.phase1_iterations + lp.phase2_iterations + lp.dual_iterations;
+            solution.iterations =
+                lp.phase1_iterations + lp.phase2_iterations + lp.dual_iterations;
             solution.used_dual_simplex = lp.used_dual_simplex;
             solution.dual_iterations = lp.dual_iterations;
             solution.refactorizations = lp.refactorizations;
@@ -224,27 +272,19 @@ LpSolution solve_lp(const LpProblem& problem, const LpSolverOptions& options) {
             solution.simplex_profile = lp.profile;
             solution.dual_residual = lp.dual_residual;
             solution.dual_residual_is_reduced_space = options.use_presolve;
+            solution.pdlp = pdlp_stats;
             reduced_x = std::move(lp.x);
-            solution.pdlp = pdlp_stats;
-        } else if (pdlp_succeeded.load(std::memory_order_acquire)) {
-            // The simplex gave up (or was cancelled) and PDLP converged.
-            solution.used_first_order = true;
-            solution.first_order_fallback_used = true;
-            solution.pdlp = pdlp_stats;
-            solution.iterations = pdlp_stats.iterations;
-            solution.status = LpStatus::OPTIMAL; // provisional; gated below
-            reduced_x = std::move(pdlp_x);
         } else {
-            // Both failed. Report the simplex's status, which is the more
-            // informative of the two.
-            solution.status = lp.status;
-            solution.iterations = lp.phase1_iterations + lp.phase2_iterations + lp.dual_iterations;
+            // First-order led, failed, and the simplex was never reached.
+            // Only possible if the simplex constructor threw, so report the
+            // first-order attempt honestly rather than inventing a status.
             solution.pdlp = pdlp_stats;
-            reduced_x = std::move(lp.x);
+            solution.status = LpStatus::NUMERICAL_FAILURE;
         }
     } else {
         Simplex simplex(*target, options.backend, options.use_ruiz_scaling, options.pricing_rule,
-                         options.algorithm);
+                         options.algorithm, options.parallel_mode);
+        simplex.set_time_budget(options.simplex_time_budget_seconds);
         LpResult lp = simplex.solve();
         solution.status = lp.status;
         solution.iterations = lp.phase1_iterations + lp.phase2_iterations + lp.dual_iterations;
@@ -285,7 +325,8 @@ LpSolution solve_lp(const LpProblem& problem, const LpSolverOptions& options) {
     // feasible for the problem the CALLER posed. A presolve reduction that
     // was not exactly invertible fails here rather than being reported as a
     // clean optimum.
-    solution.primal_residual = original_space_primal_residual(problem, solution.x);
+    solution.primal_residual =
+        original_space_primal_residual(problem, solution.x, options.parallel_mode);
     if (!(solution.primal_residual <= kFinalPrimalTol)) {
         solution.status = LpStatus::NUMERICAL_FAILURE;
     }

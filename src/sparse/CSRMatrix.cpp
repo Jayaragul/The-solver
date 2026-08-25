@@ -111,14 +111,16 @@ void CSRMatrix::validate() const {
     }
 }
 
-void CSRMatrix::multiply(const double* x, double* y) const {
+void CSRMatrix::multiply(const double* x, double* y, ParallelMode parallel_mode) const {
     // Row-parallel and bit-reproducible: row i's accumulator is private to
     // one iteration and summed in ascending k, exactly as the serial loop
     // does, so the answer does not depend on the thread count (see
     // parallel/Parallel.hpp). A CSC-ordered product could not make the
     // same claim -- its scatter-add would let the summation order follow
     // the scheduler -- which is why CSCMatrix::multiply is left serial.
-    SIHPS_OMP(omp parallel for schedule(static) if(nnz() >= kParallelNnzThreshold))
+    SIHPS_OMP(omp parallel for schedule(static) if(parallel_mode == ParallelMode::PARALLEL ||
+                                                   (parallel_mode == ParallelMode::AUTO &&
+                                                    nnz() >= kParallelNnzThreshold)))
     for (std::int32_t i = 0; i < rows_; ++i) {
         double acc = 0.0;
         const std::int32_t begin = row_ptr_[static_cast<std::size_t>(i)];

@@ -1,4 +1,5 @@
 add_library(sihps_core STATIC
+  bench/RunMetadata.cpp
   memory/MemoryArena.cpp
   sparse/CSRMatrix.cpp
   sparse/CSCMatrix.cpp
@@ -28,4 +29,15 @@ target_link_libraries(sihps_core PUBLIC CUDA::cudart CUDA::cusparse)
 if(OpenMP_CXX_FOUND)
   target_link_libraries(sihps_core PUBLIC OpenMP::OpenMP_CXX)
 endif()
+# Reproducibility stamps for benchmark records
+# (CLAUDE_OPUS_SOLVER_ROADMAP.md Phase 0). Configured at CMake time rather
+# than compiled in from a script so that a record can always be traced back
+# to a commit; "unknown" is emitted honestly when git is unavailable.
+target_compile_definitions(sihps_core PRIVATE
+  SIHPS_GIT_COMMIT="${SIHPS_GIT_COMMIT}"
+  SIHPS_GIT_DIRTY="${SIHPS_GIT_DIRTY}"
+  SIHPS_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+  SIHPS_ENABLE_CUDA=1
+)
+
 sihps_set_warnings(sihps_core)

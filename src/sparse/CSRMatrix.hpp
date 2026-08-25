@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "../parallel/Parallel.hpp"
+
 namespace sihps {
 
 // Compressed Sparse Row.
@@ -56,7 +58,8 @@ public:
     // \S2.1 for why this loop shape is the right default before any
     // OpenMP/GPU offload is justified by measurement (prompt.md \S3.2: "do
     // not prematurely over-optimize without benchmark evidence").
-    void multiply(const double* x, double* y) const;
+    void multiply(const double* x, double* y,
+                  ParallelMode parallel_mode = ParallelMode::AUTO) const;
 
 private:
     std::int32_t rows_, cols_;

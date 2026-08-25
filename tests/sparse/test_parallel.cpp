@@ -36,6 +36,7 @@ using sihps::CSRMatrix;
 using sihps::LpSolution;
 using sihps::LpSolverOptions;
 using sihps::LpStatus;
+using sihps::ParallelMode;
 using sihps::read_mps_file;
 using sihps::Triplet;
 
@@ -133,4 +134,28 @@ SIHPS_TEST(lp_solve_is_bit_identical_across_thread_counts) {
     SIHPS_ASSERT_TRUE(many.status == LpStatus::OPTIMAL);
     SIHPS_ASSERT_EQ(one.iterations, many.iterations);
     SIHPS_ASSERT_NEAR(one.objective_value, many.objective_value, 0.0);
+}
+
+SIHPS_TEST(lp_parallel_policy_is_explicit_and_bit_identical) {
+    ThreadCountGuard guard;
+
+    const auto model =
+        read_mps_file(std::string(SIHPS_PROJECT_ROOT) + "/data/netlib_lp/feasible/fit2d.mps");
+    const auto p = sihps::lp_problem_from_mps(model);
+
+    LpSolverOptions serial_opts;
+    serial_opts.parallel_mode = ParallelMode::SERIAL;
+    LpSolverOptions parallel_opts;
+    parallel_opts.parallel_mode = ParallelMode::PARALLEL;
+
+    set_threads(1);
+    const LpSolution serial = sihps::solve_lp(p, serial_opts);
+    set_threads(std::max(2, guard.saved));
+    const LpSolution parallel = sihps::solve_lp(p, parallel_opts);
+
+    SIHPS_ASSERT_TRUE(serial.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(parallel.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_EQ(serial.iterations, parallel.iterations);
+    SIHPS_ASSERT_NEAR(serial.objective_value, parallel.objective_value, 0.0);
+    SIHPS_ASSERT_NEAR(serial.primal_residual, parallel.primal_residual, 0.0);
 }

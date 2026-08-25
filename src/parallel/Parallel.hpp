@@ -48,6 +48,18 @@
 
 namespace sihps {
 
+// Controls parallelism inside one solver call.  This is deliberately a
+// policy, not a thread-count setting: changing the process-wide OpenMP thread
+// count from a library call would make concurrent domain solves interfere
+// with one another.
+//
+// AUTO is the default and only enables the deterministic inner loops once
+// their measured work threshold is reached.  SERIAL is useful when the
+// caller is already solving independent domains in parallel, preventing
+// nested teams from oversubscribing the machine.  PARALLEL is an explicit
+// request to use the inner parallel loops even for smaller work units.
+enum class ParallelMode { AUTO, SERIAL, PARALLEL };
+
 // Minimum number of nonzeros a matrix-shaped pass must touch before it is
 // worth handing to a thread team. Below this, the fork/barrier costs more
 // than the work saved.

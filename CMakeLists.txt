@@ -30,6 +30,36 @@ find_package(CUDAToolkit REQUIRED)
 # and still produces bit-identical results.
 find_package(OpenMP)
 
+# Resolved once at configure time. A benchmark record that cannot name the
+# commit that produced it is not reproducible, and this project has already
+# published three sets of numbers it could not later attribute.
+find_package(Git QUIET)
+set(SIHPS_GIT_COMMIT "unknown")
+set(SIHPS_GIT_DIRTY "unknown")
+if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE SIHPS_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} status --porcelain
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE SIHPS_GIT_STATUS
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(SIHPS_GIT_STATUS STREQUAL "")
+    set(SIHPS_GIT_DIRTY "clean")
+  else()
+    set(SIHPS_GIT_DIRTY "dirty")
+  endif()
+  if(SIHPS_GIT_COMMIT STREQUAL "")
+    set(SIHPS_GIT_COMMIT "unknown")
+  endif()
+endif()
+message(STATUS "SIHPS build stamp: ${SIHPS_GIT_COMMIT} (${SIHPS_GIT_DIRTY})")
+
 include(cmake/CompilerWarnings.cmake)
 
 add_subdirectory(src)

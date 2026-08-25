@@ -10,6 +10,23 @@ that every quoted number can be traced to the run that produced it.
 | `pdlp-vs-cpu-under-2500rows.txt` | `bench_pdlp data/netlib_lp/feasible 2500 1e-6 256 40 700 2500` | GPU PDLP is 4.4× slower than the CPU simplex below 2,500 rows (`PDLP.md` §5) |
 | `pdlp-vs-cpu-2500-20000rows.txt` | `bench_pdlp data/netlib_lp/feasible 20000 1e-6 256 60 2500 20000` | GPU PDLP is 1.56× faster from 2,500–20,000 rows, and solves `dfl001` where the simplex fails (`PDLP.md` §5) |
 
+| `netlib-hybrid-20000rows.jsonl` | `validate_netlib data/netlib_lp/feasible data/netlib_readme.txt 20000 presolve hybrid <out.jsonl>` | 93/93 with `LpMethod::HYBRID`, with full reproducibility metadata (`NUMERICS.md` §3.2) |
+
+| `crossmethod-kennington.jsonl` | `validate_crossmethod data/netlib_lp/feasible data/netlib_readme.txt 60 presolve <out.jsonl>` | 21/21 Kennington + QAP solved, 0 objective disagreements; first-order 2.39× faster where both solved (`ROADMAP_STATUS.md`) |
+
+## Structured records
+
+`validate_netlib` takes an optional sixth argument: a path for a **JSON Lines**
+file. The first line is a header object carrying the roadmap's Phase 0
+reproducibility fields — git commit and dirtiness, compiler, CUDA version, GPU
+name and compute capability, driver, CPU model, RAM, thread count, OpenMP
+schedule, and the full solver configuration. Every following line is one
+instance, including its **FNV-1a 64 content hash**, so a record can be tied to
+the exact file that produced it.
+
+JSONL rather than one JSON document, and flushed per record, so a sweep killed
+by a time limit still leaves valid parseable data for everything it finished.
+
 ## The one rule these files exist to enforce
 
 **Every timing here was taken in a single process with nothing else running.**

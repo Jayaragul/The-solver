@@ -103,8 +103,12 @@ double vector_inf_norm(const std::vector<double>& v) {
 } // namespace
 
 Simplex::Simplex(const LpProblem& problem, PricingBackend backend, bool use_ruiz_scaling,
-                  PricingRule pricing_rule, LpAlgorithm algorithm)
-    : problem_(problem), backend_(backend), pricing_rule_(pricing_rule), algorithm_(algorithm) {
+                  PricingRule pricing_rule, LpAlgorithm algorithm, ParallelMode parallel_mode)
+    : problem_(problem),
+      backend_(backend),
+      pricing_rule_(pricing_rule),
+      algorithm_(algorithm),
+      parallel_mode_(parallel_mode) {
     n_rows_ = problem_.n_rows();
     n_struct_ = problem_.n_cols();
     n_slack_ = n_rows_;
@@ -179,6 +183,7 @@ Simplex::Simplex(const LpProblem& problem, PricingBackend backend, bool use_ruiz
     }
 
     max_iterations_ = std::max(5000, 30 * (n_rows_ + n_struct_));
+    start_time_ = std::chrono::steady_clock::now();
 
     if (backend_ == PricingBackend::GPU) {
         gpu_pricer_ = std::make_unique<GpuPricer>(A_csc_, n_rows_, n_struct_, n_slack_, n_art_);
@@ -416,6 +421,14 @@ bool Simplex::setup_dual_feasible_start() {
     return true;
 }
 
+bool Simplex::out_of_time(int iterations) const {
+    if (time_budget_seconds_ <= 0.0) return false;
+    if ((iterations % kTimeCheckStride) != 0) return false;
+    const double elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+    return elapsed >= time_budget_seconds_;
+}
+
 LpStatus Simplex::run_dual_simplex(int& iterations) {
     iterations = 0;
     const auto m = static_cast<std::size_t>(n_rows_);
@@ -445,11 +458,7 @@ LpStatus Simplex::run_dual_simplex(int& iterations) {
 
     while (true) {
         if (iterations >= max_iterations_) return LpStatus::ITERATION_LIMIT;
-        // The GPU half of the HYBRID race has already returned a verified
-        // optimum; anything computed past this point is discarded.
-        if (cancel_ != nullptr && cancel_->load(std::memory_order_relaxed)) {
-            return LpStatus::ITERATION_LIMIT;
-        }
+        if (out_of_time(iterations)) return LpStatus::ITERATION_LIMIT;
         if (factor_.eta_count() >= refactorize_every_) {
             refactorize();
             recompute_basic_values();
@@ -718,7 +727,9 @@ void Simplex::compute_tableau_row(std::int32_t row, std::vector<double>& rho) co
 
     // Same shape, same guarantee, as price_cpu above: one writer per
     // output, ascending accumulation.
-    SIHPS_OMP(omp parallel for schedule(static) if(A_csc_.nnz() >= kParallelNnzThreshold))
+    SIHPS_OMP(omp parallel for schedule(static) if(parallel_mode_ == ParallelMode::PARALLEL ||
+                                                   (parallel_mode_ == ParallelMode::AUTO &&
+                                                    A_csc_.nnz() >= kParallelNnzThreshold)))
     for (std::int32_t j = 0; j < n_struct_; ++j) {
         double dot = 0.0;
         const std::int32_t begin = A_csc_.col_ptr()[j];
@@ -786,7 +797,9 @@ void Simplex::price_cpu(const std::vector<double>& y, std::vector<double>& rc) c
     // bit-identical to the serial loop and to any other thread count
     // (parallel/Parallel.hpp). Gated on nnz because on a small model the
     // fork/barrier costs more than the entire pass.
-    SIHPS_OMP(omp parallel for schedule(static) if(A_csc_.nnz() >= kParallelNnzThreshold))
+    SIHPS_OMP(omp parallel for schedule(static) if(parallel_mode_ == ParallelMode::PARALLEL ||
+                                                   (parallel_mode_ == ParallelMode::AUTO &&
+                                                    A_csc_.nnz() >= kParallelNnzThreshold)))
     for (std::int32_t j = 0; j < n_struct_; ++j) {
         double dot = 0.0;
         std::int32_t begin = A_csc_.col_ptr()[j];
@@ -989,11 +1002,7 @@ LpStatus Simplex::run_primal_simplex(bool phase1, int& iterations) {
 
     while (true) {
         if (iterations >= max_iterations_) return LpStatus::ITERATION_LIMIT;
-        // The GPU half of the HYBRID race has already returned a verified
-        // optimum; anything computed past this point is discarded.
-        if (cancel_ != nullptr && cancel_->load(std::memory_order_relaxed)) {
-            return LpStatus::ITERATION_LIMIT;
-        }
+        if (out_of_time(iterations)) return LpStatus::ITERATION_LIMIT;
         // Refactorize on accumulated eta count, not iteration count: PFI
         // solve cost and numerical drift both track the eta file, and bound
         // flips advance the iteration counter without pushing an eta.

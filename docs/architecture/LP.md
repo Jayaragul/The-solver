@@ -173,3 +173,127 @@ private:
 ## 6. What v1 Explicitly Does Not Include
 
 QP support (prompt.md's stated long-term target includes QP) is **not** part of the v1 LP engine. A QP extension requires either an active-set method built on this same simplex machinery or a barrier method handling the Hessian term — both are deferred alongside barrier/IPM (§1) until the LP core is validated. This is stated explicitly rather than left as a silent gap, per prompt.md's instruction to distinguish what is built from what is claimed.
+
+---
+
+## 7. `LpMethod::HYBRID` — structure-aware lead, verified fallback
+
+**MEASURED.** Two solvers whose failures are disjoint, a cheap feature that
+predicts which will win, and a fallback that makes a wrong prediction cost one
+budget instead of a wrong answer.
+
+```
+HYBRID:
+    rows(presolved) >= 3000  ->  first-order leads, simplex is the fallback
+    otherwise                ->  simplex leads, first-order is the fallback
+
+    the LEAD runs under a wall-clock budget
+    its answer is checked against the ORIGINAL-SPACE gate before commitment
+    if it does not converge, or converges but fails that gate, the other runs
+```
+
+### The predictor is row count, and it was measured
+
+Sorted by rows across the 21 Kennington/QAP models, the first-order path wins
+every instance from 4,350 rows upward, and the simplex wins most below 3,000.
+
+**Nonzero count is the wrong feature.** `osa-07` has 143,694 nonzeros and the
+simplex wins 2.2×; `ken-11` has 49,058 and the first-order path wins 18×. Rows
+is right because it is the quantity the two costs actually scale with: a simplex
+iteration solves against an $m \times m$ basis and its iteration count grows with
+$m$, whereas a PDHG iteration costs the same 57–111 µs almost regardless of size.
+
+Threshold chosen against an oracle that picks the better method per instance:
+
+| lead policy | total over the 21 models |
+|---|---|
+| oracle (perfect choice) | 56.0 s |
+| always simplex first | 419.9 s |
+| **rows ≥ 3000 → first-order leads** | **67.8 s** |
+| rows ≥ 4000 | 117.9 s |
+
+4,000 is worse because `qap12` (3,192 rows) is solved *only* by the first-order
+path and would fall on the wrong side of it.
+
+### Measured effect
+
+| set | metric | simplex-first | structure-aware |
+|---|---|---|---|
+| Netlib (93) | solved | 93 / 93 | **93 / 93** |
+| | total | 115.90 s | **72.59 s** |
+| | p95 | 6.71 s | **4.03 s** |
+| | worst objective error | 5.779e-07 | **5.779e-07** |
+| Kennington + QAP (21) | solved | — | **21 / 21** |
+| | total, simplex alone | 388.0 s | — |
+| | total, HYBRID | — | **43.9 s** |
+
+Per instance on Netlib: `dfl001` 34.77 → **4.01 s**, `maros-r7` 5.30 → **1.04 s**,
+`fit2p` 8.05 → **2.14 s**. `stocfor3` regresses, 15.03 → **24.74 s** — it clears
+the row threshold but is one of the few large models the simplex handles well.
+That is the cost of a one-feature predictor and it is bounded by the budget.
+
+`KNOWN LIMITATION`: the cross-method benchmark reports `hybrid / oracle = 0.78×`,
+which is **not** a claim that the hybrid beats a perfect chooser. The oracle is
+built from standalone solves at `eps = 1e-8` while HYBRID runs its first-order
+path at `1e-7`, so it is allowed a cheaper stopping test. Both clear the same
+gate. Read that ratio as an upper bound on the quality of the method *choice*.
+
+### Convergence is not verification — a defect this design exposed
+
+The first version of the structure-aware hybrid fell back only when the leading
+method **failed to converge**. That is the wrong condition, and an A/B with the
+adaptive step size disabled produced the counterexample:
+
+```
+dfl001  NUM_FAILURE  objerr 4.16e-07  4.945s  [first-order]
+```
+
+The first-order path led, converged on its own KKT test, and was then rejected
+by the original-space gate — with the simplex never tried, on a model the
+simplex path had previously handled. PDLP's KKT test is a statement about the
+**scaled, presolved** problem; the gate is a statement about the problem the
+**caller** posed. They are different questions, and a fallback keyed only on the
+first is not a fallback.
+
+The gate is now factored out (`candidate_primal_residual`) and applied to the
+leading method's answer *while the other method is still available*.
+
+### Why sequential, and not concurrent
+
+An earlier design raced the two solvers on separate threads, reasoning that the
+simplex is CPU-bound and PDLP GPU-bound so they would not contend.
+
+**They contend badly.** PDLP's host thread drives scaling, a transpose build, a
+power iteration and a spinning stream synchronize, while the simplex's pricing
+loops already use every core. `woodw` went 0.174 s → 5.6 s (PDLP then won with an
+answer that failed verification); `greenbeb` 1.3 s → 62 s; validation 92/93 →
+91/93. An earlier version was worse still — it let PDLP cancel the simplex on
+*finishing* rather than *succeeding*, so a non-converged PDLP killed solves about
+to succeed: 86/93.
+
+Two rules generalize past this solver:
+
+- **A loser must never be able to stop a winner.** Cancellation may only be
+  triggered by a result the canceller could actually return.
+- **Parallelism between algorithms is only free when they use disjoint
+  resources.** "CPU-bound" and "GPU-bound" describe where the *work* happens, not
+  where the *thread waits*.
+
+### Per-domain CPU parallelism policy
+
+The deterministic inner loops are exposed through `LpSolverOptions::parallel_mode`:
+
+- `AUTO` (the default) uses OpenMP only for sufficiently large sparse passes,
+  using the measured `kParallelNnzThreshold` gate.
+- `SERIAL` disables CPU inner-loop teams for this solve. A caller that is
+  solving independent domains or subproblems concurrently should use this
+  mode to avoid nested OpenMP oversubscription.
+- `PARALLEL` explicitly enables those deterministic loops, including for a
+  small domain when the caller has measured that the extra team overhead is
+  acceptable.
+
+Only loops with one writer per output element and a fixed summation order use
+this policy. It cannot change pivot choices, objective values, feasibility
+checks, or reported statuses. Parallelism between independent solver calls is
+not enabled implicitly because the surrounding MILP/domain scheduler owns the
+resource budget and must decide how many domains to run at once.

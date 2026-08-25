@@ -62,20 +62,37 @@ The fix is a per-row relative denominator (normalizing by $1 + |(Ax)_i|$, so the
 
 The tolerance results in §3.1 were established at a 2,600-row cap, which excluded the largest models in the Netlib set. Re-running `validate_netlib` at a **20,000-row cap**, single process with nothing else running:
 
-**92 / 93 validated instances pass** (18 instances have no published reference value; 3 remain above the cap). The single failure is `dfl001`, which reaches the iteration limit after 572,139 iterations and 792 s.
+**93 / 93 validated instances pass** with `LpMethod::HYBRID` (18 instances have no published reference value; 3 remain above the cap).
+
+The simplex alone reaches **92 / 93**; its one failure is `dfl001`, which hits the iteration limit after 572,139 iterations and 792 s. HYBRID gives that instance — and only that instance — to the first-order solver, which returns a point that clears this document's §6 gate at a relative objective error of **2.43e-07**.
+
+Aggregate KPIs for the full set (`CLAUDE_OPUS_SOLVER_ROADMAP.md` LP performance gate), single process, nothing else running:
+
+| metric | value |
+|---|---|
+| solved | **93 / 93** |
+| total | 115.900 s |
+| geometric mean | 0.030 s |
+| median | 0.020 s |
+| 95th percentile | 6.709 s |
+| max | 34.774 s (`dfl001`) |
+| total iterations | 255,144 |
+| worst relative objective error | 5.779e-07 |
+
+The mean is deliberately not quoted: solve times here span four orders of magnitude, so an arithmetic mean describes `dfl001` and nothing else.
 
 The instances this cap newly admits all pass, and several are substantially larger than anything §3.1 covered:
 
 | instance | rows | cols | solve time | rel. error |
 |---|---|---|---|---|
 | `stocfor3` | 16,675 | 15,695 | 14.34 s | 1.07e-09 |
-| `dfl001` | 6,071 | 12,230 | *iteration limit* | — |
+| `dfl001` | 6,071 | 12,230 | 34.77 s *(first-order)* | 2.43e-07 |
 | `maros-r7` | 3,136 | 9,408 | 4.01 s | 1.40e-11 |
 | `fit2p` | 3,000 | 13,525 | 6.60 s | 9.03e-10 |
 | `pilot87` | 2,030 | 4,883 | 16.70 s | 2.16e-07 |
 | `d6cube` | 415 | 6,184 | 5.23 s | 2.71e-11 |
 
-Two things worth recording. First, **the 1e-9 Harris expansion chosen in §3.1 holds at four times the model size it was tuned on** — `pilot87`, the instance that forced the tolerance change, still passes at 2.16e-07, and no newly admitted instance produced a tolerance-related failure. Second, `dfl001` is the engine's one genuine correctness gap: not a wrong answer, but no answer. It is also the one instance where the first-order path (`PDLP.md` §5) succeeds where the simplex does not, reaching a verified KKT error of 8.65e-07 in 1.13 s.
+Two things worth recording. First, **the 1e-9 Harris expansion chosen in §3.1 holds at four times the model size it was tuned on** — `pilot87`, the instance that forced the tolerance change, still passes at 2.16e-07, and no newly admitted instance produced a tolerance-related failure. Second, `dfl001` was the engine's one genuine correctness gap — not a wrong answer, but no answer. It is now closed by `LpMethod::HYBRID` (`LP.md` §7): the simplex runs under a 30 s budget, concedes, and the first-order path returns a point that passes §6's gate. It remains the only instance in the set where the two methods differ in *outcome* rather than in speed.
 
 ## 4. Iterative Refinement
 

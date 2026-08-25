@@ -47,9 +47,63 @@ struct LpSolverOptions {
     bool use_presolve = true;
     LpMethod method = LpMethod::SIMPLEX;
     PdlpParams pdlp;
+
+    // HYBRID only: how long the simplex may run before the first-order
+    // solver is given the instance. Every instance in the Netlib feasible
+    // set that the simplex solves at all solves within 17 s measured
+    // single-process, so 30 s leaves ample headroom while bounding what a
+    // genuine stall costs -- `dfl001` runs 784 s to its iteration limit
+    // without it.
+    double hybrid_simplex_budget_seconds = 30.0;
+
+    // Applies to LpMethod::SIMPLEX. Zero (the default) means unlimited,
+    // which is what the validation sweeps use -- a budget that silently
+    // truncates a solve would turn a slow instance into a false
+    // ITERATION_LIMIT and corrupt the pass rate. Callers that must bound
+    // wall time (the cross-method validator, where a single Kennington
+    // model can otherwise run for hours) set it explicitly.
+    double simplex_time_budget_seconds = 0.0;
+
+    // HYBRID only: tolerance for the first-order fallback. Looser than the
+    // FIRST_ORDER default because a first-order method's last digit is
+    // disproportionately expensive; the original-space verification gate,
+    // not this number, decides whether a result is accepted.
+    double hybrid_first_order_eps = 1e-7;
+
+    // HYBRID only: at or above this many rows (AFTER presolve) the
+    // first-order solver leads and the simplex becomes the fallback; below
+    // it, the order is reversed.
+    //
+    // MEASURED, not guessed. Across the 21 Kennington/QAP models, sorted by
+    // row count, the first-order path wins every instance from 4,350 rows
+    // upward and the simplex wins most below 3,000. Row count is the right
+    // feature and nonzero count is not: `osa-07` has 143,694 nonzeros and
+    // the simplex wins 2.2x, while `ken-11` has 49,058 and the first-order
+    // path wins 18x. That matches the mechanics -- a simplex iteration
+    // solves against an m x m basis and its iteration count grows with m,
+    // whereas a PDHG iteration costs the same 57-111 us almost regardless
+    // of size.
+    //
+    // Evaluated against an oracle that picks the better method per
+    // instance (56.0 s): leading with the simplex everywhere costs 419.9 s,
+    // this rule costs 67.8 s. A threshold of 4,000 costs 117.9 s because
+    // `qap12` (3,192 rows) is solved only by the first-order path and would
+    // fall on the wrong side.
+    std::int32_t hybrid_first_order_row_threshold = 3000;
+
+    // HYBRID only: wall-clock budget for the first-order solver when it
+    // leads. Every first-order win in the measured set finishes inside
+    // 12 s, so this bounds a misprediction at roughly one simplex budget
+    // rather than at the 500,000-iteration default.
+    double hybrid_first_order_budget_seconds = 30.0;
     bool use_ruiz_scaling = true;
     PricingBackend backend = PricingBackend::CPU;
     PricingRule pricing_rule = PricingRule::DEVEX;
+    // Controls deterministic CPU inner loops. Use SERIAL when the caller
+    // parallelizes independent domains/subproblems; use PARALLEL when this
+    // call owns the machine and should parallelize even below the automatic
+    // size gate. AUTO is safe for ordinary single-domain solves.
+    ParallelMode parallel_mode = ParallelMode::AUTO;
 
     // AUTO resolves to the primal two-phase path on a cold start -- every
     // solve today -- per docs/architecture/LP.md \S2's decision table and

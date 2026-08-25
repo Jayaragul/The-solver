@@ -61,3 +61,11 @@ sihps_set_warnings(bench_pdlp)
 add_executable(profile_simplex profile_simplex.cpp)
 target_link_libraries(profile_simplex PRIVATE sihps_core)
 sihps_set_warnings(profile_simplex)
+
+add_executable(diag_first_order diag_first_order.cpp)
+target_link_libraries(diag_first_order PRIVATE sihps_core)
+sihps_set_warnings(diag_first_order)
+
+add_executable(validate_crossmethod validate_crossmethod.cpp)
+target_link_libraries(validate_crossmethod PRIVATE sihps_core)
+sihps_set_warnings(validate_crossmethod)

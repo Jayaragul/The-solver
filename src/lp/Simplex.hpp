@@ -5,8 +5,10 @@
 #include "BasisFactorization.hpp"
 #include "LpProblem.hpp"
 #include "Scaling.hpp"
+#include "../parallel/Parallel.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -165,10 +167,17 @@ public:
     // outlive the solve. Null (the default) means the solve never aborts.
     void set_cancel_flag(const std::atomic<bool>* flag) { cancel_ = flag; }
 
+    // Wall-clock budget for LpMethod::HYBRID. Zero (the default) means no
+    // budget, which is what every other caller gets. On expiry the solve
+    // returns ITERATION_LIMIT -- it has not proved anything, so it must not
+    // claim to have.
+    void set_time_budget(double seconds) { time_budget_seconds_ = seconds; }
+
     explicit Simplex(const LpProblem& problem, PricingBackend backend = PricingBackend::CPU,
                       bool use_ruiz_scaling = true,
                       PricingRule pricing_rule = PricingRule::DEVEX,
-                      LpAlgorithm algorithm = LpAlgorithm::AUTO);
+                      LpAlgorithm algorithm = LpAlgorithm::AUTO,
+                      ParallelMode parallel_mode = ParallelMode::AUTO);
 
     LpResult solve();
 
@@ -299,6 +308,7 @@ private:
     PricingBackend backend_;
     PricingRule pricing_rule_;
     LpAlgorithm algorithm_;
+    ParallelMode parallel_mode_;
 
     // Devex reference weights, one per augmented column. Reset to all-ones
     // whenever the reference framework is restarted (see devex_update):
@@ -354,6 +364,13 @@ private:
     // LpMethod::HYBRID so the loser of the race stops promptly instead of
     // running to completion on hardware the winner no longer needs.
     const std::atomic<bool>* cancel_ = nullptr;
+    double time_budget_seconds_ = 0.0;
+    std::chrono::steady_clock::time_point start_time_{};
+    // Polling a clock every iteration would show up in the profile on
+    // models whose iterations cost microseconds, so the budget is checked
+    // on a stride. The stride is a power of two and the check is a mask.
+    static constexpr int kTimeCheckStride = 256;
+    bool out_of_time(int iterations) const;
 
     // Refactorization cadence, measured in accumulated eta vectors rather
     // than raw iterations: PFI cost and drift both scale with the eta file,
