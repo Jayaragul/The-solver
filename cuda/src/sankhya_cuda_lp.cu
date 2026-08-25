@@ -10,7 +10,7 @@
 
 namespace {
 
-__device__ double project_box(double value, double lower, double upper) {
+__host__ __device__ double project_box(double value, double lower, double upper) {
     if (!isinf(lower) && value < lower) value = lower;
     if (!isinf(upper) && value > upper) value = upper;
     return value;
@@ -98,6 +98,7 @@ int solve_qp(
     result->objective = std::numeric_limits<double>::quiet_NaN();
     result->maximum_row_violation = std::numeric_limits<double>::infinity();
     result->maximum_step = std::numeric_limits<double>::infinity();
+    result->maximum_kkt_residual = std::numeric_limits<double>::infinity();
     if (check_cuda() != 0 || matrix == nullptr || c == nullptr || row_lower == nullptr ||
         row_upper == nullptr || col_lower == nullptr || col_upper == nullptr || solution == nullptr)
         return -1;
@@ -187,6 +188,8 @@ int solve_qp(
     std::vector<double> host_x(static_cast<size_t>(cols));
     std::vector<double> previous_x(static_cast<size_t>(cols));
     std::vector<double> host_activity(static_cast<size_t>(rows));
+    std::vector<double> host_dual(static_cast<size_t>(rows));
+    std::vector<double> host_aty(static_cast<size_t>(cols));
     int have_previous_x = 0;
     int final_iteration = settings.max_iterations;
     const auto started = std::chrono::steady_clock::now();
@@ -217,6 +220,12 @@ int solve_qp(
             if (cols > 0 && cudaMemcpy(host_x.data(), d_x, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
             if (sankhya_cuda_spmv_device_f64(matrix, d_x, d_activity) != 0 ||
                 (rows > 0 && cudaMemcpy(host_activity.data(), d_activity, sizeof(double) * rows, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
+            /* Feasibility and a small iterate difference alone can describe a
+               stationary-but-wrong first-order point.  Evaluate the two
+               projected KKT inclusions at every host checkpoint instead. */
+            if (rows > 0 && cudaMemcpy(host_dual.data(), d_y, sizeof(double) * rows, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
+            if (cols > 0 && (sankhya_cuda_spmv_transpose_device_f64(matrix, d_y, d_gradient) != 0 ||
+                cudaMemcpy(host_aty.data(), d_gradient, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
             std::vector<double> host_qx;
             if (hessian != nullptr) {
                 host_qx.resize(static_cast<size_t>(cols));
@@ -241,10 +250,29 @@ int solve_qp(
             }
             have_previous_x = 1;
             const double violation = row_violation(host_activity, row_lower, row_upper);
+            double kkt_residual = 0.0;
+            for (int row = 0; row < rows; ++row) {
+                const double activity = host_activity[static_cast<size_t>(row)];
+                const double projected = project_box(activity + host_dual[static_cast<size_t>(row)],
+                    row_lower[row], row_upper[row]);
+                kkt_residual = std::max(kkt_residual, std::fabs(activity - projected));
+            }
+            for (int column = 0; column < cols; ++column) {
+                const size_t index = static_cast<size_t>(column);
+                const double qgradient = quadratic_diagonal != nullptr
+                    ? quadratic_diagonal[column] * host_x[index]
+                    : (hessian != nullptr ? host_qx[index] : 0.0);
+                const double gradient = c[column] + host_aty[index] + qgradient;
+                const double projected = project_box(host_x[index] - gradient,
+                    col_lower[column], col_upper[column]);
+                kkt_residual = std::max(kkt_residual, std::fabs(host_x[index] - projected));
+            }
             result->objective = objective;
             result->maximum_row_violation = violation;
             result->maximum_step = step;
-            if (violation <= settings.tolerance && step <= settings.tolerance * scale) {
+            result->maximum_kkt_residual = kkt_residual;
+            if (violation <= settings.tolerance && step <= settings.tolerance * scale &&
+                kkt_residual <= settings.tolerance) {
                 final_iteration = iteration; result->status = 0; break;
             }
         }

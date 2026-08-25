@@ -22,7 +22,7 @@ int main() {
     if (sankhya_cuda_csr_create(&matrix, 1, 1, 1, offsets, columns, values) != 0) return 1;
     const int status = sankhya_cuda_diagonal_qp_pdhg(&matrix, diagonal, cost,
         row_lower, row_upper, col_lower, col_upper, settings, solution, &result);
-    if (status != 0 || result.status != 0 || result.maximum_row_violation > 1e-7 ||
+    if (status != 0 || result.status != 0 || result.maximum_row_violation > 1e-7 || result.maximum_kkt_residual > 1e-7 ||
         std::fabs(solution[0] - 2.0) > 1e-5 || std::fabs(result.objective + 4.0) > 1e-5) {
         std::fprintf(stderr, "Diagonal QP result: status=%d x=%.17g objective=%.17g infeas=%.17g\n",
             result.status, solution[0], result.objective, result.maximum_row_violation);
@@ -39,7 +39,7 @@ int main() {
     const int vector_status = sankhya_cuda_qp_pdhg_preconditioned(&matrix, nullptr, diagonal, cost,
         row_lower, row_upper, col_lower, col_upper, primal_step, dual_step,
         vector_settings, solution, &result);
-    if (vector_status != 0 || result.status != 0 || std::fabs(solution[0] - 2.0) > 1e-5) {
+    if (vector_status != 0 || result.status != 0 || result.maximum_kkt_residual > 1e-7 || std::fabs(solution[0] - 2.0) > 1e-5) {
         std::fprintf(stderr, "Preconditioned diagonal QP result: status=%d x=%.17g\n",
             vector_status, solution[0]);
         sankhya_cuda_csr_destroy(&matrix);

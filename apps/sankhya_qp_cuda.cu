@@ -188,9 +188,10 @@ int main(int argc, char** argv)
     checked.nrow = model.nrow;
     const sk_status verify_status = rc == 0 ? sk_verify(&model, &checked) : SK_ERR_NUMERIC;
     std::printf("{\"file\":\"%s\",\"status\":%d,\"iterations\":%d,\"objective\":%.12g,"
-                "\"primal_inf\":%.3e,\"solve_seconds\":%.6f,\"verify_status\":\"%s\",\"verify_objective\":%.12g}\n",
+                "\"primal_inf\":%.3e,\"kkt_residual\":%.3e,\"solve_seconds\":%.6f,\"independent_primal_status\":\"%s\",\"independent_objective\":%.12g}\n",
         path, gpu_result.status, gpu_result.iterations, gpu_result.objective + model.objshift,
-        gpu_result.maximum_row_violation, solve_seconds, sk_status_name(verify_status), checked.objective);
+        gpu_result.maximum_row_violation, gpu_result.maximum_kkt_residual,
+        solve_seconds, sk_status_name(verify_status), checked.objective);
 
     sankhya_cuda_csr_destroy(&matrix);
     if (!diagonal_hessian) sankhya_cuda_csr_destroy(&hessian);

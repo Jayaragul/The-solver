@@ -55,6 +55,9 @@ typedef struct SankhyaCudaLPResult {
     double objective;
     double maximum_row_violation;
     double maximum_step;
+    /* Infinity norm of the projected primal/dual KKT residual evaluated at
+       the latest host-visible checkpoint. */
+    double maximum_kkt_residual;
 } SankhyaCudaLPResult;
 
 /* Solve min c'x subject to row_lower <= A*x <= row_upper and

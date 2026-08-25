@@ -27,10 +27,10 @@ int main() {
         std::fprintf(stderr, "PDHG call failed\n");
         return 2;
     }
-    if (result.status != 0 || result.maximum_row_violation > 1e-5 ||
+    if (result.status != 0 || result.maximum_row_violation > 1e-5 || result.maximum_kkt_residual > 1e-5 ||
         std::fabs(solution[0] - 1.0) > 1e-3) {
-        std::fprintf(stderr, "PDHG result: status=%d x=%.17g infeas=%.17g\n",
-            result.status, solution[0], result.maximum_row_violation);
+        std::fprintf(stderr, "PDHG result: status=%d x=%.17g infeas=%.17g kkt=%.17g\n",
+            result.status, solution[0], result.maximum_row_violation, result.maximum_kkt_residual);
         return 3;
     }
     return 0;
