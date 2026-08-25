@@ -116,6 +116,7 @@ static node *node_child(const node *parent, int var, int upper, double value,
 typedef struct milp {
     const sk_model *m;
     sk_model work;            /* shares A/c/rows with m, owns clow/cupp */
+    unsigned char *relax_vartype; /* continuous view for convex-QP nodes */
     double *clow0, *cupp0;    /* root bounds after integer rounding */
     double *nlow, *nupp;      /* bounds of the node being solved */
 
@@ -134,6 +135,20 @@ typedef struct milp {
 } milp;
 
 static int is_int_var(const sk_model *m, int j) { return m->vartype[j] == SK_INTEGER; }
+
+/* The first MIQP relaxation path is intentionally narrow.  A diagonal Q with
+ * no structural rows is separable, so every node relaxation is solved exactly
+ * by the guarded continuous-QP closed form.  Do not send a general QP through
+ * branch-and-bound until its node relaxation has a global certificate. */
+static int miqp_relaxation_supported(const sk_model *m)
+{
+    int j, p;
+    if (!m || !m->Q || !m->A.p || m->A.p[m->ncol] != 0) return 0;
+    for (j = 0; j < m->ncol; ++j)
+        for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+            if (m->Q->i[p] != j || m->Q->x[p] < 0.0 || !isfinite(m->Q->x[p])) return 0;
+    return 1;
+}
 
 static double frac_of(double v) { return v - floor(v); }
 
@@ -242,7 +257,7 @@ static int milp_propagate(milp *M, int rounds)
            This is safe node presolve (not a heuristic cutoff) and is useful
            on knapsack-like MIPLIB rows where feasibility propagation alone is
            weak. */
-        if (ok && M->have_incumbent) {
+        if (ok && M->have_incumbent && !m->Q) {
             double obj_min = m->objshift;
             int finite = 1;
             for (j = 0; j < m->ncol; ++j) {
@@ -289,11 +304,22 @@ static sk_result milp_solve_lp(milp *M, double *obj_out)
     if (M->time_limit > 0.0 && remaining <= 0.0) return SK_RESULT_TIME_LIMIT;
     M->lp_opt.time_limit = (M->time_limit > 0.0) ? remaining : 0.0;
 
-    memset(&ss, 0, sizeof(ss));
-    if (sk_simplex_solve(&M->work, &M->lp_opt, &M->ls, &ss) != SK_OK)
-        return SK_RESULT_NUMERIC_FAILURE;
+    sk_solution_free(&M->ls);
+    sk_solution_init(&M->ls);
+    if (M->m->Q) {
+        /* The work model has a continuous variable view, preventing public
+           dispatch from recursing back into this MILP driver. */
+        M->work.vartype = M->relax_vartype;
+        if (sk_solve(&M->work, &M->lp_opt, &M->ls) != SK_OK)
+            return SK_RESULT_NUMERIC_FAILURE;
+    } else {
+        memset(&ss, 0, sizeof(ss));
+        if (sk_simplex_solve(&M->work, &M->lp_opt, &M->ls, &ss) != SK_OK)
+            return SK_RESULT_NUMERIC_FAILURE;
+        M->st.simplex_iterations += ss.iterations;
+    }
     M->st.lp_solves++;
-    M->st.simplex_iterations += ss.iterations;
+    if (M->m->Q) M->st.simplex_iterations += M->ls.iterations;
     if (obj_out) *obj_out = M->ls.objective;
     return M->ls.result;
 }
@@ -417,6 +443,8 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         return st;
     }
 
+    if (m->Q && !miqp_relaxation_supported(m)) return SK_ERR_UNSUPPORTED;
+
     memset(&M, 0, sizeof(M));
     memset(&open, 0, sizeof(open));
     M.m = m;
@@ -441,8 +469,9 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
     M.nc_down = (int *)calloc((size_t)m->ncol, sizeof(int));
     M.nc_up   = (int *)calloc((size_t)m->ncol, sizeof(int));
     M.incumbent = (double *)calloc((size_t)m->ncol, sizeof(double));
+    M.relax_vartype = (unsigned char *)calloc((size_t)m->ncol, sizeof(unsigned char));
     if (!M.clow0 || !M.cupp0 || !M.nlow || !M.nupp || !M.pc_down || !M.pc_up ||
-        !M.nc_down || !M.nc_up || !M.incumbent) { rc = SK_ERR_MEMORY; goto cleanup; }
+        !M.nc_down || !M.nc_up || !M.incumbent || !M.relax_vartype) { rc = SK_ERR_MEMORY; goto cleanup; }
 
     for (j = 0; j < m->ncol; j++) {
         double lo = m->clow[j], up = m->cupp[j];
@@ -604,6 +633,7 @@ cleanup:
     free(M.clow0); free(M.cupp0); free(M.nlow); free(M.nupp);
     free(M.pc_down); free(M.pc_up); free(M.nc_down); free(M.nc_up);
     free(M.incumbent);
+    free(M.relax_vartype);
     sk_solution_free(&M.ls);
     return rc;
 }

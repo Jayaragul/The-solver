@@ -1,8 +1,10 @@
-/* Branch-and-bound for mixed-integer linear programming.
+/* Branch-and-bound for mixed-integer linear programming and the guarded
+ * separable diagonal-MIQP slice.
  *
- * The node relaxation is solved by the revised simplex in sk_simplex.h.  This
- * module owns only the search: bound propagation, branching, heuristics and
- * the incumbent/bound bookkeeping that proves optimality.
+ * LP node relaxations use the revised simplex; admitted diagonal-QP node
+ * relaxations use the exact continuous-QP path. This module owns only the
+ * search: bound propagation, branching, heuristics and incumbent/bound
+ * bookkeeping that proves optimality.
  */
 #ifndef SK_MILP_H
 #define SK_MILP_H

@@ -610,8 +610,7 @@ sk_status sk_solve(const sk_model *m, const sk_options *options, sk_solution *s)
 {
     if (!m || !s) return SK_ERR_ARG;
     if (sk_model_num_integer(m) == 0) return solve_continuous(m, options, s);
-    /* This is MILP branch-and-bound. MIQP needs reliable convex-QP bounds and
-       its own certificate path, so it remains intentionally unsupported. */
-    if (m->Q) return SK_ERR_UNSUPPORTED;
+    /* MILP uses certified simplex relaxations; the MIQP driver admits only
+       the guarded separable diagonal-QP relaxation implemented in sk_milp. */
     return sk_milp_solve(m, options, s, NULL);
 }

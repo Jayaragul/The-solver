@@ -46,7 +46,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   pseudocost branching, incumbent-driven objective bound propagation, rounding
   heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
-  Cuts, conflict analysis, parallel search, and MIQP remain future work.
+  A guarded MIQP slice is also available for separable nonnegative diagonal Q
+  with variable bounds only; its node relaxations are solved in closed form.
+  General MIQP, cuts, conflict analysis, and parallel search remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
@@ -89,8 +91,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
+| Native diagonal-MIQP branch-and-bound smoke | separable convex integer QP reaches `(2,2)`, objective `-6`, zero proven gap in 5 certified node relaxations | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 23/23 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 24/24 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
@@ -206,7 +209,8 @@ iterations/nodes, wall time, memory, machine, compiler, and dataset hashes.
    Netlib regression coverage.
 5. Extend the guarded diagonal/equality-QP KKT paths to broader convex sparse-QP
    KKT/interior-point solves.
-6. Add validated cuts, conflict analysis, and parallel node search to the
-   exact-simplex MILP branch-and-bound path.
+6. Extend the guarded diagonal MIQP branch-and-bound slice to certified convex
+   sparse-QP node relaxations, then add validated cuts, conflict analysis, and
+   parallel node search.
 7. Run frozen Netlib/Mittelmann/QPLIB/MIPLIB comparisons against an isolated
    open-source baseline and publish the complete result set.
