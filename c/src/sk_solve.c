@@ -111,6 +111,165 @@ static int interval_infeasible(const sk_model *m, double tolerance)
     return impossible;
 }
 
+/* Small-problem active-set polish for the first-order QP path.  PDHG is
+ * deliberately retained for large sparse models, but on a small model a few
+ * dense KKT corrections remove the long feasibility tail common to QPS
+ * instances.  The correction is accepted only through the normal independent
+ * KKT verifier below; it is never an unverified optimality shortcut. */
+static int qp_dense_solve(double *a, double *b, int n)
+{
+    int k, i, j, pivot;
+    for (k = 0; k < n; ++k) {
+        double best = fabs(a[k * n + k]);
+        pivot = k;
+        for (i = k + 1; i < n; ++i) {
+            double v = fabs(a[i * n + k]);
+            if (v > best) { best = v; pivot = i; }
+        }
+        if (best < 1e-12) return 0;
+        if (pivot != k) {
+            for (j = k; j < n; ++j) {
+                double t = a[k * n + j]; a[k * n + j] = a[pivot * n + j]; a[pivot * n + j] = t;
+            }
+            { double t = b[k]; b[k] = b[pivot]; b[pivot] = t; }
+        }
+        for (i = k + 1; i < n; ++i) {
+            double f = a[i * n + k] / a[k * n + k];
+            if (f == 0.0) continue;
+            a[i * n + k] = 0.0;
+            for (j = k + 1; j < n; ++j) a[i * n + j] -= f * a[k * n + j];
+            b[i] -= f * b[k];
+        }
+    }
+    for (i = n - 1; i >= 0; --i) {
+        double v = b[i];
+        for (j = i + 1; j < n; ++j) v -= a[i * n + j] * b[j];
+        b[i] = v / a[i * n + i];
+    }
+    return 1;
+}
+
+static double qp_kkt_score(const sk_model *m, const double *x, const double *y)
+{
+    sk_solution probe;
+    sk_solution_init(&probe);
+    probe.x = (double *)x;
+    probe.y = (double *)y;
+    if (sk_verify(m, &probe) != SK_OK) return INFINITY;
+    return probe.primal_infeasibility + probe.dual_infeasibility + probe.complementarity;
+}
+
+static void qp_active_polish(const sk_model *m, double *x, double *y)
+{
+    int n = m->ncol, r = m->nrow, max_active, iter;
+    int *free_var = NULL, *active_row = NULL;
+    double *act = NULL, *qx = NULL, *grad = NULL, *kmat = NULL, *rhs = NULL;
+    double *orig_x = NULL, *orig_y = NULL, before, after;
+
+    if (!m->Q || n > 512 || r > 512) return;
+    max_active = r + n;
+    free_var = (int *)malloc((size_t)n * sizeof(int));
+    active_row = (int *)malloc((size_t)r * sizeof(int));
+    act = (double *)calloc((size_t)r, sizeof(double));
+    qx = (double *)calloc((size_t)n, sizeof(double));
+    grad = (double *)calloc((size_t)n, sizeof(double));
+    kmat = (double *)calloc((size_t)max_active * (size_t)max_active, sizeof(double));
+    rhs = (double *)calloc((size_t)max_active, sizeof(double));
+    orig_x = (double *)malloc((size_t)n * sizeof(double));
+    orig_y = (double *)malloc((size_t)r * sizeof(double));
+    if (!free_var || !active_row || (!act && r) || !qx || !grad || !kmat || !rhs || !orig_x || (!orig_y && r)) goto done;
+    memcpy(orig_x, x, (size_t)n * sizeof(double));
+    memcpy(orig_y, y, (size_t)r * sizeof(double));
+    {
+        double pinf = 0.0;
+        int i, j, p;
+        memset(act, 0, (size_t)r * sizeof(double));
+        for (j = 0; j < n; ++j) for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) act[m->A.i[p]] += m->A.x[p] * x[j];
+        for (i = 0; i < r; ++i) {
+            if (!SK_IS_NEG_INF(m->rlow[i]) && m->rlow[i] - act[i] > pinf) pinf = m->rlow[i] - act[i];
+            if (!SK_IS_INF(m->rupp[i]) && act[i] - m->rupp[i] > pinf) pinf = act[i] - m->rupp[i];
+        }
+        for (j = 0; j < n; ++j) {
+            if (!SK_IS_NEG_INF(m->clow[j]) && m->clow[j] - x[j] > pinf) pinf = m->clow[j] - x[j];
+            if (!SK_IS_INF(m->cupp[j]) && x[j] - m->cupp[j] > pinf) pinf = x[j] - m->cupp[j];
+        }
+        if (pinf > 1e-5) goto done;
+    }
+    before = qp_kkt_score(m, x, y);
+
+    for (iter = 0; iter < 8; ++iter) {
+        int i, j, p, nf = 0, na = 0, dim;
+        double max_step = 0.0;
+        memset(act, 0, (size_t)r * sizeof(double));
+        memset(qx, 0, (size_t)n * sizeof(double));
+        for (j = 0; j < n; ++j) {
+            for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) act[m->A.i[p]] += m->A.x[p] * x[j];
+            for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p) qx[m->Q->i[p]] += m->Q->x[p] * x[j];
+        }
+        for (j = 0; j < n; ++j) {
+            int atlo = !SK_IS_NEG_INF(m->clow[j]) && fabs(x[j] - m->clow[j]) <= 1e-7;
+            int athi = !SK_IS_INF(m->cupp[j]) && fabs(x[j] - m->cupp[j]) <= 1e-7;
+            if (!atlo && !athi) free_var[nf++] = j;
+        }
+        for (i = 0; i < r; ++i) {
+            int equality = !SK_IS_NEG_INF(m->rlow[i]) && !SK_IS_INF(m->rupp[i]) &&
+                           fabs(m->rlow[i] - m->rupp[i]) <= 1e-9;
+            int lower = !SK_IS_NEG_INF(m->rlow[i]) &&
+                        (equality || fabs(act[i] - m->rlow[i]) <= 1e-4 * (1.0 + fabs(m->rlow[i])) ||
+                         act[i] < m->rlow[i]);
+            int upper = !SK_IS_INF(m->rupp[i]) &&
+                        (equality || fabs(act[i] - m->rupp[i]) <= 1e-4 * (1.0 + fabs(m->rupp[i])) ||
+                         act[i] > m->rupp[i]);
+            if (lower || upper) active_row[na++] = i;
+        }
+        dim = nf + na;
+        if (dim == 0 || dim > max_active) break;
+        memset(kmat, 0, (size_t)dim * (size_t)dim * sizeof(double));
+        memset(rhs, 0, (size_t)dim * sizeof(double));
+        for (i = 0; i < nf; ++i) {
+            int v = free_var[i];
+            grad[v] = m->c[v] + qx[v];
+            rhs[i] = -grad[v];
+            for (p = m->Q->p[v]; p < m->Q->p[v + 1]; ++p) {
+                int row = m->Q->i[p], q;
+                for (q = 0; q < nf; ++q) if (free_var[q] == row) kmat[i * dim + q] += m->Q->x[p];
+            }
+        }
+        for (j = 0; j < na; ++j) {
+            int row = active_row[j];
+            rhs[nf + j] = (!SK_IS_NEG_INF(m->rlow[row]) &&
+                           (SK_IS_INF(m->rupp[row]) || fabs(act[row] - m->rlow[row]) <= fabs(act[row] - m->rupp[row])))
+                          ? m->rlow[row] - act[row] : m->rupp[row] - act[row];
+            for (i = 0; i < nf; ++i) {
+                int v = free_var[i], p0;
+                for (p0 = m->A.p[v]; p0 < m->A.p[v + 1]; ++p0) if (m->A.i[p0] == row) {
+                    kmat[i * dim + nf + j] += m->A.x[p0];
+                    kmat[(nf + j) * dim + i] += m->A.x[p0];
+                }
+            }
+        }
+        if (!qp_dense_solve(kmat, rhs, dim)) break;
+        memset(y, 0, (size_t)r * sizeof(double));
+        for (i = 0; i < nf; ++i) {
+            x[free_var[i]] += rhs[i];
+            if (!SK_IS_NEG_INF(m->clow[free_var[i]]) && x[free_var[i]] < m->clow[free_var[i]]) x[free_var[i]] = m->clow[free_var[i]];
+            if (!SK_IS_INF(m->cupp[free_var[i]]) && x[free_var[i]] > m->cupp[free_var[i]]) x[free_var[i]] = m->cupp[free_var[i]];
+            if (fabs(rhs[i]) > max_step) max_step = fabs(rhs[i]);
+        }
+        for (j = 0; j < na; ++j) y[active_row[j]] = rhs[nf + j];
+        if (max_step <= 1e-9) break;
+    }
+    after = qp_kkt_score(m, x, y);
+    if (!(after < before * (1.0 - 1e-6) && after <= 1e-5)) {
+        memcpy(x, orig_x, (size_t)n * sizeof(double));
+        memcpy(y, orig_y, (size_t)r * sizeof(double));
+    }
+
+done:
+    free(free_var); free(active_row); free(act); free(qx); free(grad); free(kmat); free(rhs);
+    free(orig_x); free(orig_y);
+}
+
 static sk_status solve_continuous(const sk_model *m, const sk_options *options, sk_solution *s)
 {
     sk_options defaults;
@@ -213,6 +372,8 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         }
     }
 
+    if (m->Q) qp_active_polish(m, x, y);
+
     sk_solution_init(s);
     s->x = x; x = NULL;
     s->y = y; y = NULL;
@@ -228,8 +389,12 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     /* QP uses the independently recomputed KKT residual. LP PDHG uses a
        different multiplier sign convention from the legacy LP verifier, so
        its certificate is intentionally deferred to the simplex path. */
-    if (converged && (!m->Q || (sk_verify(m, s) == SK_OK &&
-        s->primal_infeasibility <= 100.0 * o->primal_tol &&
+    if (m->Q) {
+        if (sk_verify(m, s) == SK_OK && s->primal_infeasibility <= 100.0 * o->primal_tol &&
+            s->dual_infeasibility <= 100.0 * o->dual_tol && s->complementarity <= 100.0 * o->dual_tol)
+            converged = 1;
+    }
+    if (converged && (!m->Q || (s->primal_infeasibility <= 100.0 * o->primal_tol &&
         s->dual_infeasibility <= 100.0 * o->dual_tol && s->complementarity <= 100.0 * o->dual_tol))) {
         s->result = SK_RESULT_OPTIMAL;
     } else {

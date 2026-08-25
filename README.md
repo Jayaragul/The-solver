@@ -39,6 +39,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
+- Small convex QPs receive a bounded dense active-set KKT polish; its output is
+  accepted only when the independent verifier confirms a strict KKT improvement.
 - Native interval presolve detects contradictory column bounds and row-activity
   intervals in `O(nnz + rows + columns)` before solving or branching.
 - CMake targets for native C smoke tests and optional CUDA smoke tests.
