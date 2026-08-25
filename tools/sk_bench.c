@@ -32,7 +32,8 @@ static void usage(void)
     fprintf(stderr, "usage: sk_bench [options] file1.mps [file2.qps ...]\n"
                     "  --time-limit S    per-instance wall limit\n"
                     "  --iterations N    per-instance iteration limit\n"
-                    "  --nodes N         per-instance node limit\n");
+                    "  --nodes N         per-instance node limit\n"
+                    "  --no-cuts         disable validated MILP cover cuts\n");
 }
 
 static void json_string(const char *text)
@@ -65,6 +66,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--time-limit") && i + 1 < argc) o.time_limit = atof(argv[++i]);
         else if (!strcmp(argv[i], "--iterations") && i + 1 < argc) o.iteration_limit = atoll(argv[++i]);
         else if (!strcmp(argv[i], "--nodes") && i + 1 < argc) o.node_limit = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--no-cuts")) o.mip_cuts = 0;
         else if (argv[i][0] == '-') { usage(); return 2; }
         else ++files;
     }

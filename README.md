@@ -96,7 +96,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native JSONL benchmark harness | one command dispatches LP/QP/MILP files and reports provenance, status, residuals, bounds, iterations/nodes, and timing; smoke covers all three | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
-| Native MILP branch-and-bound/cut smoke | binary row receives a validated cover cut, reaches `(1,0)`, objective `-2`, and closes the proven gap | passed |
+| Native MILP branch-and-bound/cut smoke | binary row receives a validated cover cut, reaches `(1,0)`, objective `-2`, and closes the proven gap; controlled ablation is 0 versus 3 nodes | passed |
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
@@ -190,6 +190,10 @@ with the revised default refactor interval, while retaining two limits.
 The first native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
 It proves 3/5 small official MIPLIB instances within a fixed 20-second limit and
 retains the two time-limited cases with their valid dual bounds.
+
+The focused cover-cut ablation is recorded in
+[MILP_COVER_CUT](bench/results/MILP_COVER_CUT.md); it measures the bundled
+binary smoke instance with cuts enabled and disabled under the same limit.
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
 It records one proven optimum and retains nine QP limits; QPLIB remains an
