@@ -433,7 +433,10 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         dual_step = 0.0;
         for (j = 0; j < r; ++j) if (fabs(y_new[j] - y[j]) > dual_step) dual_step = fabs(y_new[j] - y[j]);
         csc_tmv(&m->A, y_new, gradient);
-        if (m->Q) csc_mv(m->Q, x, qx);
+        if (m->Q) {
+            if (qdiag) for (j = 0; j < n; ++j) qx[j] = qdiag[j] * x[j];
+            else csc_mv(m->Q, x, qx);
+        }
         for (j = 0; j < n; ++j) {
             if (qdiag) {
                 /* Implicit diagonal-Q prox: this is more stable than an
@@ -474,7 +477,10 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     s->ncol = n; s->nrow = r;
     s->iterations = iteration;
     s->solve_seconds = sk_wall_seconds() - start;
-    if (m->Q) csc_mv(m->Q, s->x, qx);
+    if (m->Q) {
+        if (qdiag) for (iteration = 0; iteration < n; ++iteration) qx[iteration] = qdiag[iteration] * s->x[iteration];
+        else csc_mv(m->Q, s->x, qx);
+    }
     s->objective = m->objshift;
     for (iteration = 0; iteration < n; ++iteration)
         s->objective += m->c[iteration] * s->x[iteration] + (m->Q ? 0.5 * s->x[iteration] * qx[iteration] : 0.0);

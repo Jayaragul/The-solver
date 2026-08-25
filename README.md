@@ -45,7 +45,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   step size.
 - When the Hessian is diagonal, the PDHG primal update treats that quadratic
   term implicitly (a diagonal proximal step); general sparse Hessians retain
-  the explicit fallback.
+  the explicit fallback, and diagonal Hessian products avoid a repeated sparse
+  traversal inside the iteration loop.
 - When available, native QP transpose-SpMV uses OpenMP; `sk_qp --threads N`
   selects the worker count while preserving a serial fallback.
 - Small convex QPs receive a bounded dense active-set KKT polish; its output is
