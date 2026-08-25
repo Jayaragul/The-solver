@@ -20,6 +20,8 @@ typedef struct SankhyaCudaCSR {
     void* device_values;
 } SankhyaCudaCSR;
 
+/* Requires canonical CSR offsets (zero through nnz), in-range column indices,
+   and finite coefficients. Invalid input is rejected before GPU allocation. */
 SANKHYA_CUDA_API int sankhya_cuda_csr_create(
     SankhyaCudaCSR* matrix,
     int rows,

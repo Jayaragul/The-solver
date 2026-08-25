@@ -28,6 +28,10 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   encountered in the Netlib corpus without changing the public model.
 - CUDA double-precision CSR SpMV and fused AXPY kernels.
 - Persistent device-resident CSR storage for repeated iterations.
+- CUDA CSR creation rejects malformed offsets, invalid column indices, and
+  non-finite coefficients before device allocation; PDHG returns a numeric
+  failure rather than a convergence result if finite input overflows in an
+  iterative sparse product.
 - CUDA primal-dual hybrid-gradient (PDHG) prototype for bounded continuous LP:
   `min c'x` subject to `row_lower <= A*x <= row_upper` and variable bounds.
 - CUDA PDHG specialization for convex QPs: diagonal terms use an implicit

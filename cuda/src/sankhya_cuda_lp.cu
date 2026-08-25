@@ -76,6 +76,14 @@ double row_violation(
     return std::max(0.0, maximum);
 }
 
+bool valid_lower_bound(double value) {
+    return !std::isnan(value) && !(std::isinf(value) && value > 0.0);
+}
+
+bool valid_upper_bound(double value) {
+    return !std::isnan(value) && !(std::isinf(value) && value < 0.0);
+}
+
 }  // namespace
 
 int solve_qp(
@@ -110,6 +118,12 @@ int solve_qp(
     const int rows = matrix->rows;
     const int cols = matrix->cols;
     if (rows < 0 || cols < 0) return -1;
+    for (int column = 0; column < cols; ++column)
+        if (!std::isfinite(c[column]) || !valid_lower_bound(col_lower[column]) ||
+            !valid_upper_bound(col_upper[column]) || col_lower[column] > col_upper[column]) return -1;
+    for (int row = 0; row < rows; ++row)
+        if (!valid_lower_bound(row_lower[row]) || !valid_upper_bound(row_upper[row]) ||
+            row_lower[row] > row_upper[row]) return -1;
     if (primal_steps != nullptr) {
         for (int i = 0; i < cols; ++i)
             if (!std::isfinite(primal_steps[i]) || primal_steps[i] <= 0.0) return -1;
@@ -226,12 +240,20 @@ int solve_qp(
             if (rows > 0 && cudaMemcpy(host_dual.data(), d_y, sizeof(double) * rows, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
             if (cols > 0 && (sankhya_cuda_spmv_transpose_device_f64(matrix, d_y, d_gradient) != 0 ||
                 cudaMemcpy(host_aty.data(), d_gradient, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
+            for (int column = 0; column < cols; ++column)
+                if (!std::isfinite(host_x[static_cast<size_t>(column)]) ||
+                    !std::isfinite(host_aty[static_cast<size_t>(column)])) { result->status = -2; cleanup(); return -2; }
+            for (int row = 0; row < rows; ++row)
+                if (!std::isfinite(host_activity[static_cast<size_t>(row)]) ||
+                    !std::isfinite(host_dual[static_cast<size_t>(row)])) { result->status = -2; cleanup(); return -2; }
             std::vector<double> host_qx;
             if (hessian != nullptr) {
                 host_qx.resize(static_cast<size_t>(cols));
                 if (sankhya_cuda_spmv_device_f64(hessian, d_x, d_quadratic_gradient) != 0 ||
                     (cols > 0 && cudaMemcpy(host_qx.data(), d_quadratic_gradient,
                         sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
+                for (int column = 0; column < cols; ++column)
+                    if (!std::isfinite(host_qx[static_cast<size_t>(column)])) { result->status = -2; cleanup(); return -2; }
             }
             double objective = 0.0;
             for (int column = 0; column < cols; ++column) {
@@ -240,6 +262,7 @@ int solve_qp(
                 if (quadratic_diagonal != nullptr) objective += 0.5 * quadratic_diagonal[column] * x * x;
                 else if (hessian != nullptr) objective += 0.5 * x * host_qx[static_cast<size_t>(column)];
             }
+            if (!std::isfinite(objective)) { result->status = -2; cleanup(); return -2; }
             double step = have_previous_x ? 0.0 : std::numeric_limits<double>::infinity();
             double scale = 1.0;
             for (int column = 0; column < cols; ++column) {

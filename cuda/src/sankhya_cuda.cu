@@ -2,6 +2,7 @@
 
 #include <cuda_runtime.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -119,6 +120,15 @@ extern "C" int sankhya_cuda_csr_create(
     if (matrix == nullptr || row_offsets == nullptr || rows < 0 || cols < 0 || nnz < 0 ||
         (nnz > 0 && (column_indices == nullptr || values == nullptr)))
         return fail_message("invalid persistent CSR input");
+    if (row_offsets[0] != 0 || row_offsets[rows] != nnz)
+        return fail_message("invalid CSR row-offset endpoints");
+    for (int row = 0; row < rows; ++row)
+        if (row_offsets[row] < 0 || row_offsets[row] > row_offsets[row + 1] ||
+            row_offsets[row + 1] > nnz)
+            return fail_message("invalid CSR row-offset ordering");
+    for (int p = 0; p < nnz; ++p)
+        if (column_indices[p] < 0 || column_indices[p] >= cols || !std::isfinite(values[p]))
+            return fail_message("invalid CSR column index or coefficient");
     if (ensure_cuda_device()) return -1;
     sankhya_cuda_csr_destroy(matrix);
     matrix->rows = rows; matrix->cols = cols; matrix->nnz = nnz;
