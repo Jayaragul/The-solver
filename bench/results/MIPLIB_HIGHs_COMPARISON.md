@@ -34,13 +34,13 @@ highs.exe --model_file bench\data\miplib\mps\<name>.mps --time_limit 20
 
 | Instance | SANKHYA status | SANKHYA objective | SANKHYA dual bound | SANKHYA s | HiGHS status | HiGHS primal | HiGHS dual | HiGHS s |
 |---|---|---:|---:|---:|---|---:|---:|---:|
-| p0033 | optimal | 3089 | 3089 | 0.059673 | Optimal | 3089 | 3089 | 0.03 |
-| bell5 | time limit | — | 8608417.946508 | 20.015094 | Optimal* | 8966406.49152 | 8965510.24893 | 0.43 |
-| stein27 | optimal | 18 | 18 | 2.821371 | Optimal | 18 | 18 | 0.68 |
-| flugpl | optimal | 1201500 | 1201500 | 0.030302 | Optimal | 1201500 | 1201500 | 0.09 |
-| set1ch | time limit | — | 35118.109848 | 20.001758 | Optimal* | 54537.75 | 54534.90893 | 0.40 |
+| p0033 | optimal | 3089 | 3089 | 0.093923 | Optimal | 3089 | 3089 | 0.03 |
+| bell5 | time limit | — | 8608417.946508 | 20.021214 | Optimal* | 8966406.49152 | 8965510.24893 | 0.43 |
+| stein27 | optimal | 18 | 18 | 4.070301 | Optimal | 18 | 18 | 0.68 |
+| flugpl | optimal | 1201500 | 1201500 | 0.044780 | Optimal | 1201500 | 1201500 | 0.09 |
+| set1ch | time limit | 101030 | 35681.989552 | 20.000517 | Optimal* | 54537.75 | 54534.90893 | 0.40 |
 
 `*` HiGHS stopped with a nonzero gap that was within its default tolerance;
 these are not exact zero-gap proofs. SANKHYA's two time-limited rows retain
-their valid lower bounds and no incumbent was found, so they are not presented
-as solved or as direct speed comparisons.
+valid bounds; set1ch's incumbent is independently checked but is not claimed
+optimal or directly comparable as a speed result.

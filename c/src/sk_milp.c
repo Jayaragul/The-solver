@@ -479,7 +479,7 @@ static int milp_accept(milp *M, const double *x, double obj)
 /* Round the integers of the current relaxation, fix them, and re-solve for the
  * continuous variables.  One LP for a decent chance at an early incumbent,
  * which is what makes the bound pruning effective. */
-static void milp_heuristic_round(milp *M, const double *xrel)
+static void milp_heuristic_round(milp *M, const double *xrel, int mode)
 {
     const sk_model *m = M->m;
     double *savelo = NULL, *savehi = NULL;
@@ -512,7 +512,9 @@ static void milp_heuristic_round(milp *M, const double *xrel)
     for (j = 0; j < m->ncol; j++) {
         double v;
         if (!is_int_var(m, j)) continue;
-        v = floor(xrel[j] + 0.5);
+        if (mode == 1) v = floor(xrel[j]);
+        else if (mode == 2) v = ceil(xrel[j]);
+        else v = floor(xrel[j] + 0.5);
         if (v < M->nlow[j]) v = ceil(M->nlow[j] - 1e-7);
         if (v > M->nupp[j]) v = floor(M->nupp[j] + 1e-7);
         if (v < M->nlow[j] - 1e-9 || v > M->nupp[j] + 1e-9) { feasible = 0; break; }
@@ -662,7 +664,14 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         if (seed < 1e-6) seed = 1e-6;
         M.pc_down[j] = seed; M.pc_up[j] = seed;
     }
-    if (o->mip_heuristics) milp_heuristic_round(&M, M.ls.x);
+    if (o->mip_heuristics) {
+        /* Try both directions at the root.  Covering and packing models have
+           opposite feasibility geometry; a single nearest-round attempt can
+           miss an incumbent even when a one-sided repair is immediate. */
+        int mode;
+        for (mode = 0; mode < 3 && !M.have_incumbent; ++mode)
+            milp_heuristic_round(&M, M.ls.x, mode);
+    }
 
     current = node_child(NULL, 0, 0, 0.0, root_obj, 0.0);
     if (!current) { rc = SK_ERR_MEMORY; goto cleanup; }
@@ -723,7 +732,7 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         }
 
         if (o->mip_heuristics && (M.st.nodes % 64) == 1)
-            milp_heuristic_round(&M, M.ls.x);
+            milp_heuristic_round(&M, M.ls.x, (int)((M.st.nodes / 64) % 3));
 
         {
             double xv = M.ls.x[bvar];
