@@ -74,7 +74,9 @@ int ensure_cuda_device() {
     return device_count == 0 ? fail_message("no CUDA device available") : 0;
 }
 
-int launch_spmv(const SankhyaCudaCSR* matrix, const double* device_x, double* device_y) {
+/* Device-pointer primitives enqueue work on the default stream.  A later
+ * device-to-host copy or explicit synchronization provides completion. */
+int launch_spmv_async(const SankhyaCudaCSR* matrix, const double* device_x, double* device_y) {
     if (matrix == nullptr) return fail_message("null device CSR pointer");
     if (matrix->rows == 0) return 0;
     if (device_y == nullptr || (matrix->cols > 0 && device_x == nullptr))
@@ -88,11 +90,10 @@ int launch_spmv(const SankhyaCudaCSR* matrix, const double* device_x, double* de
         static_cast<const double*>(matrix->device_values), device_x, device_y);
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess) return fail("CSR SpMV launch", error);
-    error = cudaDeviceSynchronize();
-    return error == cudaSuccess ? 0 : fail("CSR SpMV synchronize", error);
+    return 0;
 }
 
-int launch_axpy(int n, double alpha, const double* device_x, double* device_y) {
+int launch_axpy_async(int n, double alpha, const double* device_x, double* device_y) {
     if (n < 0) return fail_message("negative vector dimension");
     if (n == 0) return 0;
     if (device_x == nullptr || device_y == nullptr) return fail_message("null device vector pointer");
@@ -100,8 +101,7 @@ int launch_axpy(int n, double alpha, const double* device_x, double* device_y) {
     axpy_f64_kernel<<<(n + block_size - 1) / block_size, block_size>>>(n, alpha, device_x, device_y);
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess) return fail("AXPY launch", error);
-    error = cudaDeviceSynchronize();
-    return error == cudaSuccess ? 0 : fail("AXPY synchronize", error);
+    return 0;
 }
 
 int allocate(void** destination, size_t bytes, const char* label) {
@@ -156,7 +156,7 @@ extern "C" int sankhya_cuda_spmv_device_f64(
     const SankhyaCudaCSR* matrix, const double* device_x, double* device_y) {
     g_last_error[0] = '\0';
     if (ensure_cuda_device()) return -1;
-    return launch_spmv(matrix, device_x, device_y);
+    return launch_spmv_async(matrix, device_x, device_y);
 }
 
 extern "C" int sankhya_cuda_spmv_transpose_device_f64(
@@ -176,7 +176,6 @@ extern "C" int sankhya_cuda_spmv_transpose_device_f64(
         static_cast<const int*>(matrix->device_column_indices),
         static_cast<const double*>(matrix->device_values), device_y, device_x);
     if ((error = cudaGetLastError()) != cudaSuccess) return fail("transpose SpMV launch", error);
-    if ((error = cudaDeviceSynchronize()) != cudaSuccess) return fail("transpose SpMV synchronize", error);
     return 0;
 }
 
@@ -184,7 +183,7 @@ extern "C" int sankhya_cuda_axpy_device_f64(
     int n, double alpha, const double* device_x, double* device_y) {
     g_last_error[0] = '\0';
     if (ensure_cuda_device()) return -1;
-    return launch_axpy(n, alpha, device_x, device_y);
+    return launch_axpy_async(n, alpha, device_x, device_y);
 }
 
 extern "C" int sankhya_cuda_spmv_f64(

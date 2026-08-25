@@ -30,7 +30,9 @@ SANKHYA_CUDA_API int sankhya_cuda_csr_create(
     const double* values);
 SANKHYA_CUDA_API void sankhya_cuda_csr_destroy(SankhyaCudaCSR* matrix);
 
-/* Device-pointer variants for iterative algorithms. */
+/* Device-pointer variants for iterative algorithms.  These enqueue work on
+   CUDA's default stream and return after launch; use a later device-to-host
+   copy or explicit synchronization when host visibility is required. */
 SANKHYA_CUDA_API int sankhya_cuda_spmv_device_f64(
     const SankhyaCudaCSR* matrix, const double* device_x, double* device_y);
 SANKHYA_CUDA_API int sankhya_cuda_spmv_transpose_device_f64(

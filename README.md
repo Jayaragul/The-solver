@@ -83,6 +83,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Sparse-LU regression | FTRAN/BTRAN through `n=1200`, 12 eta updates, singular rejection | passed |
 | CUDA sparse-operator smoke test | compiled for `sm_86` and passed on RTX 3050 Laptop GPU | passed |
 | CUDA PDHG LP smoke test | one-variable LP compiled and solved on GPU | passed |
+| CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Netlib 5-second sweep | 25/31 LPs optimal with independent residual checks; 6 declared time limits, no false optimum | recorded |
