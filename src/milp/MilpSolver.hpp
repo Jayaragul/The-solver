@@ -33,6 +33,15 @@ struct MilpSolverOptions {
     double feasibility_tolerance = 1e-6;
     double objective_tolerance = 1e-8;
     bool use_rounding_heuristic = true;
+    // Deterministic LP diving only proposes incumbents; it never changes
+    // node pruning or optimality certification. It is limited so a failed
+    // dive cannot consume an unbounded fraction of the B&B budget.
+    bool use_diving_heuristic = true;
+    std::uint32_t diving_max_depth = 32;
+    std::uint32_t diving_max_lp_relaxations = 64;
+    bool use_local_improvement = true;
+    std::uint32_t local_improvement_passes = 3;
+    std::uint32_t local_improvement_max_trials = 128;
     MilpBranchingRule branching_rule = MilpBranchingRule::RELIABILITY;
     std::uint32_t reliability_threshold = 2;
     std::uint32_t strong_branching_candidates = 4;
@@ -54,7 +63,10 @@ struct MilpSolution {
     std::uint64_t lp_relaxations = 0;
     std::uint64_t strong_branching_probes = 0;
     std::uint64_t root_cover_cuts = 0;
+    std::uint64_t cover_cuts = 0;
     std::uint64_t incumbent_updates = 0;
+    std::uint64_t diving_heuristic_lp_relaxations = 0;
+    std::uint64_t local_improvement_lp_relaxations = 0;
 };
 
 MilpSolution solve_milp(const MilpProblem& problem,

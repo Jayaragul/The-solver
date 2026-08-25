@@ -148,6 +148,18 @@ SIHPS_TEST(milp_mixed_nonnegative_packing_row_gets_valid_cover_cut) {
     SIHPS_ASSERT_NEAR(result.objective_value, -10.0, 1e-8);
 }
 
+SIHPS_TEST(milp_unit_bounded_integer_variables_get_binary_cover_cuts) {
+    auto problem = binary_knapsack();
+    problem.variable_types = {VariableType::INTEGER, VariableType::INTEGER};
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    const auto result = sihps::solve_milp(problem, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.root_cover_cuts >= 1);
+    SIHPS_ASSERT_NEAR(result.objective_value, -10.0, 1e-8);
+}
+
 SIHPS_TEST(milp_maps_unbounded_pure_continuous_relaxation_to_unbounded) {
     LpProblem lp;
     lp.A = CSRMatrix::from_triplets(0, 1, {});

@@ -15,6 +15,7 @@
 // regression gate.
 
 #include "bench/RunMetadata.hpp"
+#include "cuda/CudaDevice.hpp"
 #include "io/MpsReader.hpp"
 #include "io/NetlibReference.hpp"
 #include "lp/LpProblem.hpp"
@@ -23,6 +24,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <memory>
 #include <cmath>
 #include <cstdio>
@@ -31,10 +33,46 @@
 #include <string>
 #include <vector>
 
+#ifdef __linux__
+#include <sys/resource.h>
+#endif
+
 using namespace sihps;
 namespace fs = std::filesystem;
 
 namespace {
+
+struct ResourceSnapshot {
+    double cpu_seconds = 0.0;
+    long peak_rss_kb = 0;
+    bool gpu_available = false;
+    std::size_t gpu_free_bytes = 0;
+    std::size_t gpu_total_bytes = 0;
+};
+
+ResourceSnapshot resource_snapshot() {
+    ResourceSnapshot snapshot;
+#ifdef __linux__
+    struct rusage usage {};
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        snapshot.cpu_seconds = static_cast<double>(usage.ru_utime.tv_sec) +
+                               static_cast<double>(usage.ru_utime.tv_usec) / 1e6 +
+                               static_cast<double>(usage.ru_stime.tv_sec) +
+                               static_cast<double>(usage.ru_stime.tv_usec) / 1e6;
+        snapshot.peak_rss_kb = usage.ru_maxrss;
+    }
+#endif
+    try {
+        if (CudaDevice::device_count() > 0) {
+            snapshot.gpu_available = true;
+            CudaDevice::select(0);
+            CudaDevice::memory_info(snapshot.gpu_free_bytes, snapshot.gpu_total_bytes);
+        }
+    } catch (...) {
+        snapshot.gpu_available = false;
+    }
+    return snapshot;
+}
 
 // Relative-objective agreement threshold. Netlib's own primary values
 // carry ~10 significant digits, and its CPLEX/MINOS columns disagree with
@@ -76,6 +114,9 @@ int main(int argc, char** argv) {
     // permanent part of the interface.
     bool pdlp_adaptive = true;
     if (const char* e = std::getenv("SIHPS_PDLP_ADAPTIVE")) pdlp_adaptive = (std::atoi(e) != 0);
+
+    const ResourceSnapshot resources_before = resource_snapshot();
+    const auto benchmark_start = std::chrono::steady_clock::now();
 
     const bench::RunMetadata meta = bench::RunMetadata::capture();
     bench::RunConfig cfg;
@@ -248,6 +289,26 @@ int main(int argc, char** argv) {
                 sum.median_seconds, sum.p95_seconds, sum.max_seconds);
     std::printf("total iterations %lld   worst relative objective error %.3e\n",
                 static_cast<long long>(sum.total_iterations), sum.worst_relative_objective_error);
+    const ResourceSnapshot resources_after = resource_snapshot();
+    const double wall_seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - benchmark_start).count();
+    const double cpu_seconds =
+        std::max(0.0, resources_after.cpu_seconds - resources_before.cpu_seconds);
+    const double cpu_utilization = wall_seconds > 1e-9 ? 100.0 * cpu_seconds / wall_seconds : 0.0;
+    std::printf("resources: wall %.3f s  CPU %.3f s  aggregate CPU utilization %.1f%%  "
+                "peak RSS %.1f MB\n",
+                wall_seconds, cpu_seconds, cpu_utilization,
+                resources_after.peak_rss_kb / 1024.0);
+    if (resources_before.gpu_available && resources_after.gpu_available) {
+        std::printf("GPU memory: %.1f MB used before -> %.1f MB used after (of %.1f MB)\n",
+                    (resources_before.gpu_total_bytes - resources_before.gpu_free_bytes) /
+                        (1024.0 * 1024.0),
+                    (resources_after.gpu_total_bytes - resources_after.gpu_free_bytes) /
+                        (1024.0 * 1024.0),
+                    resources_after.gpu_total_bytes / (1024.0 * 1024.0));
+    } else {
+        std::printf("GPU memory: unavailable\n");
+    }
     if (writer) std::printf("records written to %s\n", jsonl_path.c_str());
     return failed == 0 ? 0 : 1;
 }

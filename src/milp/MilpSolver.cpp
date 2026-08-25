@@ -168,10 +168,20 @@ struct CoverCut {
     std::vector<std::int32_t> variables;
 };
 
-std::vector<CoverCut> separate_root_cover_cuts(const MilpProblem& problem,
-                                                const std::vector<double>& x,
-                                                double violation_tolerance,
-                                                std::uint32_t limit) {
+bool binary_domain(const MilpProblem& problem, const LpProblem& lp, std::int32_t variable) {
+    const auto j = static_cast<std::size_t>(variable);
+    if (problem.variable_types[j] == VariableType::BINARY) return true;
+    // MPS commonly encodes binary variables as INTEGER inside INTORG/INTEND
+    // with explicit [0,1] bounds. Treating those as binary is a semantic
+    // classification for valid cover separation, not a relaxation change.
+    return problem.variable_types[j] == VariableType::INTEGER && lp.lower[j] >= 0.0 &&
+           lp.upper[j] <= 1.0;
+}
+
+std::vector<CoverCut> separate_cover_cuts(const MilpProblem& problem,
+                                           const std::vector<double>& x,
+                                           double violation_tolerance,
+                                           std::uint32_t limit) {
     std::vector<CoverCut> cuts;
     const LpProblem& lp = problem.relaxation;
     for (std::int32_t i = 0; i < lp.n_rows() && cuts.size() < limit; ++i) {
@@ -187,44 +197,102 @@ std::vector<CoverCut> separate_root_cover_cuts(const MilpProblem& problem,
         std::vector<Term> terms;
         const std::int32_t begin = lp.A.row_ptr()[i];
         const std::int32_t end = lp.A.row_ptr()[i + 1];
-        bool valid_nonnegative_packing_row = true;
+        bool valid_cover_row = true;
+        double noncover_minimum = 0.0;
         for (std::int32_t k = begin; k < end; ++k) {
             const auto kk = static_cast<std::size_t>(k);
             const std::int32_t j = lp.A.col_idx()[kk];
             const auto jj = static_cast<std::size_t>(j);
-            // The cover proof only needs an upper-bounded packing row: every
-            // non-cover term must be nonnegative over its variable domain.
-            // Binary terms are the only terms lifted into the cut; integer
-            // and continuous terms may safely remain outside it.
-            if (lp.lower[jj] < 0.0 || lp.A.values()[kk] <= 0.0) {
-                valid_nonnegative_packing_row = false;
+            const double coefficient = lp.A.values()[kk];
+            const double lower_term = coefficient * lp.lower[jj];
+            const double upper_term = coefficient * lp.upper[jj];
+            const double minimum_term = std::min(lower_term, upper_term);
+            if (!std::isfinite(minimum_term)) {
+                // A term with an unbounded contribution below could cancel
+                // the cover activity, so no cover inequality is inferred.
+                valid_cover_row = false;
                 break;
             }
-            if (problem.variable_types[jj] == VariableType::BINARY) {
-                terms.push_back({j, lp.A.values()[kk], x[jj]});
+            if (binary_domain(problem, lp, j) && coefficient > 0.0) {
+                terms.push_back({j, coefficient, x[jj]});
+            } else {
+                noncover_minimum += minimum_term;
             }
         }
-        if (!valid_nonnegative_packing_row || terms.size() < 2) continue;
-        std::sort(terms.begin(), terms.end(), [](const Term& lhs, const Term& rhs) {
+        if (!valid_cover_row || terms.size() < 2) continue;
+        const double effective_upper = upper - noncover_minimum;
+        std::vector<std::vector<Term>> orderings;
+        orderings.push_back(terms);
+        orderings.push_back(terms);
+        orderings.push_back(terms);
+        orderings.push_back(terms);
+        std::sort(orderings[0].begin(), orderings[0].end(), [](const Term& lhs, const Term& rhs) {
             if (lhs.value != rhs.value) return lhs.value > rhs.value;
             return lhs.variable < rhs.variable;
         });
+        std::sort(orderings[1].begin(), orderings[1].end(), [](const Term& lhs, const Term& rhs) {
+            if (lhs.coefficient != rhs.coefficient) return lhs.coefficient > rhs.coefficient;
+            return lhs.variable < rhs.variable;
+        });
+        std::sort(orderings[2].begin(), orderings[2].end(), [](const Term& lhs, const Term& rhs) {
+            if (lhs.coefficient != rhs.coefficient) return lhs.coefficient < rhs.coefficient;
+            return lhs.variable < rhs.variable;
+        });
+        std::sort(orderings[3].begin(), orderings[3].end(), [](const Term& lhs, const Term& rhs) {
+            if (lhs.value != rhs.value) return lhs.value < rhs.value;
+            return lhs.variable < rhs.variable;
+        });
 
-        double coefficient_sum = 0.0;
-        double fractional_activity = 0.0;
-        CoverCut cut;
-        for (const Term& term : terms) {
-            coefficient_sum += term.coefficient;
-            fractional_activity += term.value;
-            cut.variables.push_back(term.variable);
-            if (coefficient_sum > upper + violation_tolerance) break;
+        for (auto& ordering : orderings) {
+            if (cuts.size() >= limit) break;
+            double coefficient_sum = 0.0;
+            CoverCut cut;
+            for (const Term& term : ordering) {
+                coefficient_sum += term.coefficient;
+                cut.variables.push_back(term.variable);
+                if (coefficient_sum > effective_upper + violation_tolerance) break;
+            }
+            if (coefficient_sum <= effective_upper + violation_tolerance ||
+                cut.variables.empty()) {
+                continue;
+            }
+
+            // Remove redundant cover members. The resulting inequality is
+            // still valid, and minimal covers are generally stronger than a
+            // greedy nonminimal superset.
+            for (std::size_t p = 0; p < cut.variables.size();) {
+                const auto variable = cut.variables[p];
+                double without = 0.0;
+                for (const Term& term : terms) {
+                    if (std::find(cut.variables.begin(), cut.variables.end(), term.variable) !=
+                            cut.variables.end() &&
+                        term.variable != variable) {
+                        without += term.coefficient;
+                    }
+                }
+                if (without > effective_upper + violation_tolerance) {
+                    cut.variables.erase(cut.variables.begin() + static_cast<std::ptrdiff_t>(p));
+                } else {
+                    ++p;
+                }
+            }
+
+            double fractional_activity = 0.0;
+            for (std::int32_t variable : cut.variables) {
+                fractional_activity += x[static_cast<std::size_t>(variable)];
+            }
+            if (cut.variables.size() < 2 ||
+                fractional_activity <= static_cast<double>(cut.variables.size() - 1) +
+                                           violation_tolerance) {
+                continue;
+            }
+            std::sort(cut.variables.begin(), cut.variables.end());
+            const bool duplicate = std::any_of(
+                cuts.begin(), cuts.end(), [&](const CoverCut& existing) {
+                    return existing.variables == cut.variables;
+                });
+            if (!duplicate) cuts.push_back(std::move(cut));
         }
-        if (coefficient_sum <= upper + violation_tolerance || cut.variables.empty() ||
-            fractional_activity <= static_cast<double>(cut.variables.size() - 1) +
-                                       violation_tolerance) {
-            continue;
-        }
-        cuts.push_back(std::move(cut));
     }
     return cuts;
 }
@@ -408,6 +476,165 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
     };
 
+    const auto consider_incumbent = [&](const std::vector<double>& candidate,
+                                        const std::vector<double>& candidate_lower,
+                                        const std::vector<double>& candidate_upper) {
+        if (!feasible_point(problem, candidate, candidate_lower, candidate_upper,
+                            options.feasibility_tolerance, options.lp_options.parallel_mode) ||
+            !integral_point(problem, candidate, options.integrality_tolerance)) {
+            return false;
+        }
+        const double candidate_objective = objective_value(workspace, candidate);
+        if (!std::isfinite(incumbent) ||
+            candidate_objective < incumbent -
+                                     options.objective_tolerance * (1.0 + std::fabs(incumbent))) {
+            incumbent = candidate_objective;
+            incumbent_x = candidate;
+            ++solution.incumbent_updates;
+            return true;
+        }
+        return false;
+    };
+
+    bool heuristic_timeout = false;
+    const auto attempt_lp_dive = [&](const LpSolution& starting,
+                                     const std::vector<double>& starting_lower,
+                                     const std::vector<double>& starting_upper) {
+        if (!options.use_diving_heuristic || options.diving_max_depth == 0 ||
+            options.diving_max_lp_relaxations == 0 || std::isfinite(incumbent)) {
+            return;
+        }
+
+        LpSolution current = starting;
+        std::vector<double> dive_lower = starting_lower;
+        std::vector<double> dive_upper = starting_upper;
+        std::uint32_t dive_relaxations = 0;
+        for (std::uint32_t depth = 0; depth < options.diving_max_depth; ++depth) {
+            if (timed_out()) {
+                heuristic_timeout = true;
+                return;
+            }
+            if (integral_point(problem, current.x, options.integrality_tolerance)) {
+                consider_incumbent(current.x, dive_lower, dive_upper);
+                return;
+            }
+            const auto candidates =
+                fractional_candidates(problem, current.x, options.integrality_tolerance);
+            if (candidates.empty()) return;
+
+            const FractionalCandidate& candidate = candidates.front();
+            const auto j = static_cast<std::size_t>(candidate.variable);
+            const double floor_value = std::floor(current.x[j]);
+            const double ceil_value = std::ceil(current.x[j]);
+            // Prefer the side indicated by the objective, then try the other
+            // side if the preferred LP is infeasible. This is a deterministic
+            // objective-guided dive, not a relaxation bound used for proof.
+            const int preferred_direction = workspace.obj[j] < 0.0 ? +1 : -1;
+            const auto solve_dive_child = [&](int direction) -> bool {
+                std::vector<double> child_lower = dive_lower;
+                std::vector<double> child_upper = dive_upper;
+                if (direction < 0) {
+                    child_upper[j] = std::min(child_upper[j], floor_value);
+                } else {
+                    child_lower[j] = std::max(child_lower[j], ceil_value);
+                }
+                if (!bounds_are_valid(child_lower, child_upper)) return false;
+                workspace.lower = child_lower;
+                workspace.upper = child_upper;
+                ++solution.lp_relaxations;
+                ++solution.diving_heuristic_lp_relaxations;
+                ++dive_relaxations;
+                const LpSolution child = solve_lp(workspace, relaxation_options);
+                workspace.lower = dive_lower;
+                workspace.upper = dive_upper;
+                if (child.status != LpStatus::OPTIMAL ||
+                    child.x.size() != static_cast<std::size_t>(problem.n_cols())) {
+                    return false;
+                }
+                current = child;
+                dive_lower = std::move(child_lower);
+                dive_upper = std::move(child_upper);
+                return true;
+            };
+
+            if (dive_relaxations >= options.diving_max_lp_relaxations ||
+                (!solve_dive_child(preferred_direction) &&
+                 (dive_relaxations >= options.diving_max_lp_relaxations ||
+                  !solve_dive_child(-preferred_direction)))) {
+                return;
+            }
+        }
+        if (integral_point(problem, current.x, options.integrality_tolerance)) {
+            consider_incumbent(current.x, dive_lower, dive_upper);
+        }
+    };
+
+    const auto attempt_local_improvement = [&](const std::vector<double>& node_lower,
+                                               const std::vector<double>& node_upper) {
+        if (!options.use_local_improvement || options.local_improvement_passes == 0 ||
+            options.local_improvement_max_trials == 0 || !std::isfinite(incumbent)) {
+            return;
+        }
+
+        std::vector<double> current = incumbent_x;
+        for (std::uint32_t pass = 0; pass < options.local_improvement_passes; ++pass) {
+            bool improved = false;
+            std::uint32_t trials = 0;
+            for (std::int32_t j = 0; j < problem.n_cols() &&
+                                      trials < options.local_improvement_max_trials;
+                 ++j) {
+                const auto jj = static_cast<std::size_t>(j);
+                if (problem.variable_types[jj] == VariableType::CONTINUOUS) continue;
+                if (!std::isfinite(current[jj])) continue;
+
+                std::vector<double> trial_lower = node_lower;
+                std::vector<double> trial_upper = node_upper;
+                for (std::int32_t k = 0; k < problem.n_cols(); ++k) {
+                    const auto kk = static_cast<std::size_t>(k);
+                    if (problem.variable_types[kk] == VariableType::CONTINUOUS) continue;
+                    const double fixed = std::round(current[kk]);
+                    trial_lower[kk] = std::max(trial_lower[kk], fixed);
+                    trial_upper[kk] = std::min(trial_upper[kk], fixed);
+                }
+
+                const double current_value = std::round(current[jj]);
+                double trial_value = current_value;
+                if (binary_domain(problem, problem.relaxation, j)) {
+                    trial_value = current_value <= 0.5 ? 1.0 : 0.0;
+                } else {
+                    const double up = current_value + 1.0;
+                    const double down = current_value - 1.0;
+                    if (up <= trial_upper[jj]) trial_value = up;
+                    else if (down >= trial_lower[jj]) trial_value = down;
+                    else continue;
+                }
+                trial_lower[jj] = std::max(trial_lower[jj], trial_value);
+                trial_upper[jj] = std::min(trial_upper[jj], trial_value);
+                if (!bounds_are_valid(trial_lower, trial_upper)) continue;
+
+                LpProblem local = workspace;
+                local.lower = trial_lower;
+                local.upper = trial_upper;
+                ++trials;
+                ++solution.lp_relaxations;
+                ++solution.local_improvement_lp_relaxations;
+                const LpSolution local_solution = solve_lp(local, relaxation_options);
+                if (local_solution.status != LpStatus::OPTIMAL ||
+                    local_solution.x.size() != static_cast<std::size_t>(problem.n_cols())) {
+                    continue;
+                }
+                const double before = incumbent;
+                if (consider_incumbent(local_solution.x, node_lower, node_upper) &&
+                    incumbent < before) {
+                    current = incumbent_x;
+                    improved = true;
+                }
+                if (timed_out()) return;
+            }
+            if (!improved) break;
+        }
+    };
+
     while (!open.empty()) {
         if (timed_out()) {
             solution.status = MilpStatus::TIME_LIMIT;
@@ -461,18 +688,15 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         const double lower_bound = relaxation.objective_value;
         record_pseudocost(*node, lower_bound, false);
 
-        // Separate only once at the root in this milestone. The cuts are
-        // globally valid cover inequalities for binary variables, so they
-        // remain valid in every descendant; a node-local cut pool is a later
-        // extension with a separate postsolve/accounting contract.
         if (node->depth == 0 && !root_cuts_separated && options.enable_root_cover_cuts) {
             root_cuts_separated = true;
-            const auto cuts = separate_root_cover_cuts(
+            const auto cuts = separate_cover_cuts(
                 problem, relaxation.x, options.cut_violation_tolerance,
                 options.max_root_cover_cuts);
             if (!cuts.empty()) {
                 append_cover_cuts(workspace, cuts);
                 solution.root_cover_cuts = cuts.size();
+                solution.cover_cuts = cuts.size();
                 open.push(node);
                 continue;
             }
@@ -488,19 +712,8 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             integral_point(problem, relaxation.x, options.integrality_tolerance);
         const std::vector<double> rounded = rounded_point(problem, relaxation.x, lower, upper);
         if (candidate_integral || options.use_rounding_heuristic) {
-            if (feasible_point(problem, rounded, lower, upper, options.feasibility_tolerance,
-                               options.lp_options.parallel_mode) &&
-                integral_point(problem, rounded, options.integrality_tolerance)) {
-                const double candidate_objective = objective_value(workspace, rounded);
-                if (!std::isfinite(incumbent) ||
-                    candidate_objective < incumbent -
-                                             options.objective_tolerance *
-                                                 (1.0 + std::fabs(incumbent))) {
-                    incumbent = candidate_objective;
-                    incumbent_x = rounded;
-                    ++solution.incumbent_updates;
-                }
-            } else if (candidate_integral) {
+            const bool accepted = consider_incumbent(rounded, lower, upper);
+            if (!accepted && candidate_integral) {
                 // The LP claimed an integral point, but the exact integer
                 // candidate did not clear the original-model gate. Do not
                 // branch on a point that should already be terminal: this is
@@ -511,6 +724,26 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
 
         if (candidate_integral) continue;
+
+        // Dive at the root and at only the first few levels when no
+        // incumbent exists. Repeating a failed dive at every deep node can
+        // spend more LP work on heuristics than on certified search.
+        if (node->depth <= 2 && !std::isfinite(incumbent)) {
+            attempt_lp_dive(relaxation, lower, upper);
+            if (heuristic_timeout) {
+                open.push(node);
+                solution.status = MilpStatus::TIME_LIMIT;
+                break;
+            }
+        }
+        if (node->depth == 0 && std::isfinite(incumbent)) {
+            attempt_local_improvement(lower, upper);
+            if (timed_out()) {
+                open.push(node);
+                solution.status = MilpStatus::TIME_LIMIT;
+                break;
+            }
+        }
 
         for (std::int32_t j = 0; j < problem.n_cols(); ++j) {
             const auto jx = static_cast<std::size_t>(j);

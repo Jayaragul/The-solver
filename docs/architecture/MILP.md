@@ -56,14 +56,16 @@ the bound-change chain rather than to the full model.
 ## 2. Cuts (implemented root mixed-row cover subset)
 
 The first cut implementation is deliberately narrow and auditable: root-only
-cover inequalities for upper-bounded packing rows whose variables have
-nonnegative domains and positive coefficients. Only binary terms are selected
-for a cover, so nonnegative integer/continuous terms may safely remain outside
-the cut. For a cover $C$ with $\sum_{j\in C} a_j > b$, it adds the valid
-inequality $\sum_{j\in C} x_j \le |C|-1$. Rows with negative coefficients or
-variables that can be negative are rejected by the separator rather than
-approximated. Cuts are globally valid and remain active in descendants; they
-are generated once at the root and counted separately.
+cover inequalities for rows with a finite upper activity bound and finite
+term-wise lower contributions. Binary terms—including MPS `INTEGER`
+variables explicitly bounded in $[0,1]$—are selected for a cover; all other
+terms are accounted for by their exact bound-derived minimum contribution.
+For a cover $C$ with $\sum_{j\in C} a_j > b'$, where $b'$ is the row upper
+bound after subtracting those minimum contributions, it adds the valid
+inequality $\sum_{j\in C} x_j \le |C|-1$. Rows with unbounded lower
+contributions are rejected by the separator rather than approximated. Cuts
+are globally valid and remain active in descendants; they are generated once
+at the root and counted separately.
 
 General MIR and flow-cover strengthening for mixed rows remains a future
 extension. It requires a full row-bound transformation and independent
@@ -74,7 +76,7 @@ not claim that broader cut family.
 class CutManager {
 public:
     // Current implementation: root-only nonnegative mixed-row cover
-    // separation; only binary terms enter each cover inequality.
+    // separation; binary-domain terms enter each cover inequality.
     // General MIR/flow-cover strengthening is intentionally not implied here.
     std::vector<Cut> separate(const LPResult& fractional_solution);
 };
