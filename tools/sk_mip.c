@@ -20,6 +20,7 @@ static void usage(void)
         "  --node-limit N    branch-and-bound node limit\n"
         "  --gap-rel G       relative MIP gap tolerance\n"
         "  --gap-abs G       absolute MIP gap tolerance\n"
+        "  --no-cuts         disable validated MILP cover cuts\n"
         "  --no-heuristics   disable primal heuristics\n"
         "  --expect V        reference objective, reported as relative error\n"
         "  --quiet           suppress the human-readable header\n");
@@ -44,6 +45,7 @@ int main(int argc, char **argv)
         if (argv[i][0] != '-') { path = argv[i]; continue; }
         if (!strcmp(argv[i], "--quiet")) { quiet = 1; continue; }
         if (!strcmp(argv[i], "--no-heuristics")) { o.mip_heuristics = 0; continue; }
+        if (!strcmp(argv[i], "--no-cuts")) { o.mip_cuts = 0; continue; }
         if (i + 1 >= argc) { usage(); return 2; }
         if      (!strcmp(argv[i], "--time-limit")) o.time_limit = atof(argv[++i]);
         else if (!strcmp(argv[i], "--node-limit")) o.node_limit = atoll(argv[++i]);
