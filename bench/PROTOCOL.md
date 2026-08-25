@@ -10,3 +10,16 @@
 8. Record status, objective, residuals, iterations/nodes, time, and peak memory.
 9. Any disagreement is listed per instance; timeouts and failures are never hidden.
 
+## Native collection command
+
+Use the C harness for a frozen file list:
+
+```text
+sk_bench.exe --time-limit 5 instance1.mps instance2.qps instance3.mps
+```
+
+It emits one JSON object per input with solver provenance, dimensions, status,
+objective, valid dual bound when available, residuals, iterations/nodes, and
+read/solve times. Non-finite diagnostics are emitted as JSON `null`; a limit
+status is retained as a limit and is never rewritten as optimal.
+
