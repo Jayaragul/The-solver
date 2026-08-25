@@ -34,8 +34,20 @@ static void csc_mv(const sk_csc *a, const double *x, double *y)
 static void csc_tmv(const sk_csc *a, const double *y, double *x)
 {
     int j;
+    /* Thread launch/reduction overhead dominates small sparse products.  Keep
+       those serial even when the caller requests many workers; the threshold
+       is deliberately conservative and only gates this transpose kernel. */
 #if defined(SANKHYA_HAS_OPENMP)
+    if (a->ncol >= 512 && a->p[a->ncol] >= 4096) {
 #pragma omp parallel for schedule(static)
+        for (j = 0; j < a->ncol; ++j) {
+            double sum = 0.0;
+            int p;
+            for (p = a->p[j]; p < a->p[j + 1]; ++p) sum += a->x[p] * y[a->i[p]];
+            x[j] = sum;
+        }
+        return;
+    }
 #endif
     for (j = 0; j < a->ncol; ++j) {
         double sum = 0.0;

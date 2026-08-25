@@ -15,13 +15,14 @@ build\cmake-cuda\sk_qp.exe bench\data\qp_test_problems\QPS_Files\QSTANDAT.QPS \
 
 | Threads | Iterations | Solve seconds | Objective | Primal inf |
 |---:|---:|---:|---:|---:|
-| 1 | 50001 | 1.529301 | 6411.84001457 | 6.366e-04 |
-| 2 | 50001 | 1.470922 | 6411.84001457 | 6.366e-04 |
-| 4 | 50001 | 1.431379 | 6411.84001457 | 6.366e-04 |
-| 8 | 50001 | 1.676679 | 6411.84001457 | 6.366e-04 |
+| 1 | 50001 | 1.602874 | 6411.84001457 | 6.366e-04 |
+| 2 | 50001 | 1.656842 | 6411.84001457 | 6.366e-04 |
+| 4 | 50001 | 1.606249 | 6411.84001457 | 6.366e-04 |
+| 8 | 50001 | 1.616658 | 6411.84001457 | 6.366e-04 |
 
-The four-thread run is about 6.4% faster than the serial run on this laptop;
-the eight-thread regression demonstrates why thread count must remain a
+The adaptive sparse threshold keeps the eight-thread run within 0.9% of the
+serial run on this laptop, removing the earlier small-workload regression.
+This does not claim positive scaling for every QP; thread count remains a
 benchmark-controlled option rather than a universal default.
 
 Input SHA-256 (`QSTANDAT.QPS`):

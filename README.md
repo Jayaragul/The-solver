@@ -203,8 +203,9 @@ It records one proven optimum and retains nine QP limits; QPLIB remains an
 explicitly unclaimed future benchmark.
 
 The measured native CPU parallel check is [QP_THREADS](bench/results/QP_THREADS.md);
-it records a 6.4% four-thread gain on a fixed sparse-QP workload and an
-eight-thread oversubscription regression.
+it records identical objective/residual results across thread counts and shows
+the adaptive sparse threshold keeping eight threads within 0.9% of serial on a
+fixed sparse-QP workload.
 
 ## Benchmark contract
 
