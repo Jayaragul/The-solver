@@ -1,5 +1,5 @@
 /* Branch-and-bound for mixed-integer linear programming and the guarded
- * diagonal-MIQP slice.
+ * small-convex-MIQP slice.
  *
  * LP node relaxations use the revised simplex; admitted diagonal-QP node
  * relaxations use the exact continuous-QP path. This module owns only the

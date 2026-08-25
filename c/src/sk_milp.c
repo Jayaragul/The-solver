@@ -136,18 +136,55 @@ typedef struct milp {
 
 static int is_int_var(const sk_model *m, int j) { return m->vartype[j] == SK_INTEGER; }
 
-/* The first MIQP relaxation path is intentionally narrow.  A nonnegative
- * diagonal Q is admitted when the total number of variables and rows is small
- * enough for the exact active-set certificate (or when there are no rows and
- * the separable closed form applies). */
+/* The first MIQP relaxation path is intentionally bounded.  A small sparse Q
+ * is admitted when a dense PSD guard succeeds and the total number of
+ * variables and rows fits the exact active-set certificate. */
+static int miqp_q_psd(const sk_model *m)
+{
+    int n = m->ncol, i, j, k, p;
+    double *h = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
+    double *l = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
+    if ((!h && n) || (!l && n)) { free(h); free(l); return 0; }
+    for (j = 0; j < n; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p) {
+        if (m->Q->i[p] < 0 || m->Q->i[p] >= n || !isfinite(m->Q->x[p])) {
+            free(h); free(l); return 0;
+        }
+        h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
+    }
+    for (i = 0; i < n; ++i) for (j = i; j < n; ++j) {
+        double v = 0.5 * (h[(size_t)i * n + j] + h[(size_t)j * n + i]);
+        h[(size_t)i * n + j] = h[(size_t)j * n + i] = v;
+    }
+    for (i = 0; i < n; ++i) {
+        double d = h[(size_t)i * n + i];
+        for (k = 0; k < i; ++k) d -= l[(size_t)i * n + k] * l[(size_t)i * n + k];
+        if (d < -1e-10 * (1.0 + fabs(h[(size_t)i * n + i]))) {
+            free(h); free(l); return 0;
+        }
+        if (d > 1e-12 * (1.0 + fabs(h[(size_t)i * n + i]))) {
+            l[(size_t)i * n + i] = sqrt(d);
+            for (j = i + 1; j < n; ++j) {
+                double v = h[(size_t)j * n + i];
+                for (k = 0; k < i; ++k) v -= l[(size_t)j * n + k] * l[(size_t)i * n + k];
+                l[(size_t)j * n + i] = v / l[(size_t)i * n + i];
+            }
+        } else {
+            for (j = i + 1; j < n; ++j) {
+                double v = h[(size_t)j * n + i];
+                for (k = 0; k < i; ++k) v -= l[(size_t)j * n + k] * l[(size_t)i * n + k];
+                if (fabs(v) > 1e-9 * (1.0 + fabs(h[(size_t)j * n + i]))) {
+                    free(h); free(l); return 0;
+                }
+            }
+        }
+    }
+    free(h); free(l); return 1;
+}
+
 static int miqp_relaxation_supported(const sk_model *m)
 {
-    int j, p;
     if (!m || !m->Q || !m->A.p || m->ncol + m->nrow > 12) return 0;
-    for (j = 0; j < m->ncol; ++j)
-        for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
-            if (m->Q->i[p] != j || m->Q->x[p] < 0.0 || !isfinite(m->Q->x[p])) return 0;
-    return 1;
+    return miqp_q_psd(m);
 }
 
 static double frac_of(double v) { return v - floor(v); }
@@ -501,7 +538,10 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         if (seed < 1e-6) seed = 1e-6;
         M.pc_down[j] = seed; M.pc_up[j] = seed;
     }
-    if (o->mip_heuristics) milp_heuristic_round(&M, M.ls.x);
+    /* The QP relaxation scratch object is replaced by a node solve.  Until a
+       copy-preserving QP heuristic is added, avoid invalidating the active
+       relaxation point on the guarded MIQP path. */
+    if (o->mip_heuristics && !m->Q) milp_heuristic_round(&M, M.ls.x);
 
     current = node_child(NULL, 0, 0, 0.0, root_obj, 0.0);
     if (!current) { rc = SK_ERR_MEMORY; goto cleanup; }
@@ -561,7 +601,8 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
             node_free(current); current = NULL; continue;
         }
 
-        if (o->mip_heuristics && (M.st.nodes % 64) == 1) milp_heuristic_round(&M, M.ls.x);
+        if (o->mip_heuristics && !m->Q && (M.st.nodes % 64) == 1)
+            milp_heuristic_round(&M, M.ls.x);
 
         {
             double xv = M.ls.x[bvar];

@@ -153,8 +153,8 @@ void sk_options_default(sk_options *o);
 /* Current native dispatch solves continuous LPs and convex QPs (Q optional)
  * by guarded exact paths or a primal-dual first-order method. Bounded MILPs
  * use exact-simplex branch-and-bound over certified LP relaxations. A guarded
- * MIQP slice admits only nonnegative diagonal Q in the small active-set
- * certificate regime (or bounds-only closed form). General MIQP remains
+ * MIQP slice admits only small positive-semidefinite Q in the active-set
+ * certificate regime (or bounds-only closed form). Larger MIQP remains
  * unsupported. */
 sk_status sk_solve(const sk_model *m, const sk_options *o, sk_solution *s);
 
