@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SIHPS verified benchmark report</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f7f8fb, #101217);
+      --surface: light-dark(#ffffff, #171a21);
+      --surface-2: light-dark(#eef1f6, #20242d);
+      --text: light-dark(#17202b, #eef2f8);
+      --muted: light-dark(#5d6878, #aab4c3);
+      --line: light-dark(#d9dee8, #343b49);
+      --good: light-dark(#087443, #54d39b);
+      --warn: light-dark(#a05b00, #ffc266);
+      --bad: light-dark(#b42318, #ff8d85);
+      --blue: light-dark(#2f6fed, #79a3ff);
+      --purple: light-dark(#7956c7, #b99aff);
+      --bar-track: light-dark(#e7ebf2, #292f3a);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.45; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px 22px 56px; }
+    h1, h2, h3 { line-height: 1.15; margin: 0; font-weight: 500; }
+    h1 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.03em; }
+    h2 { font-size: 22px; margin-bottom: 14px; }
+    h3 { font-size: 16px; margin-bottom: 8px; }
+    p { margin: 8px 0; }
+    a { color: var(--blue); }
+    .eyebrow { color: var(--blue); font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+    .subhead { color: var(--muted); max-width: 850px; margin-top: 12px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: 13px; margin-top: 18px; }
+    .section { margin-top: 34px; }
+    .grid { display: grid; gap: 14px; }
+    .score-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+    .metric-label { color: var(--muted); font-size: 13px; }
+    .metric-value { font-size: 30px; font-weight: 500; margin-top: 7px; letter-spacing: -0.03em; }
+    .metric-note { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .chart { min-height: 260px; }
+    .bar-chart { display: grid; gap: 14px; margin-top: 12px; }
+    .bar-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(130px, 2fr) 90px; align-items: center; gap: 10px; font-size: 13px; }
+    .bar-label { color: var(--text); }
+    .track { height: 16px; background: var(--bar-track); border-radius: 4px; overflow: hidden; }
+    .fill { height: 100%; border-radius: 4px; min-width: 2px; }
+    .fill.good { background: var(--good); }
+    .fill.blue { background: var(--blue); }
+    .fill.warn { background: var(--warn); }
+    .fill.bad { background: var(--bad); }
+    .bar-value { color: var(--muted); text-align: right; white-space: nowrap; }
+    .legend { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; background: var(--muted); }
+    .legend .lg-good::before { background: var(--good); }
+    .legend .lg-warn::before { background: var(--warn); }
+    .legend .lg-blue::before { background: var(--blue); }
+    .legend .lg-bad::before { background: var(--bad); }
+    .note { color: var(--muted); font-size: 13px; }
+    .callout { border-left: 3px solid var(--warn); padding: 10px 14px; background: var(--surface-2); color: var(--text); font-size: 13px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 900px; }
+    th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 500; }
+    .status-exact { color: var(--good); }
+    .status-limit { color: var(--warn); }
+    .resource-bars { display: grid; gap: 11px; margin-top: 14px; }
+    .resource-row { display: grid; grid-template-columns: 95px 1fr 76px; align-items: center; gap: 10px; font-size: 12px; }
+    .resource-row .track { height: 12px; }
+    .source-list { margin: 0; padding-left: 20px; color: var(--muted); font-size: 13px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; color: var(--text); }
+    footer { color: var(--muted); border-top: 1px solid var(--line); margin-top: 38px; padding-top: 16px; font-size: 12px; }
+    @media (max-width: 850px) {
+      .score-grid, .two { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 560px) {
+      main { padding: 24px 14px 42px; }
+      .score-grid, .two { grid-template-columns: 1fr; }
+      .bar-row { grid-template-columns: 1fr; gap: 4px; }
+      .bar-value { text-align: left; }
+      .resource-row { grid-template-columns: 80px 1fr 70px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">SIHPS solver · verified benchmark</div>
+  <h1>LP and MIP benchmark results</h1>
+  <p class="subhead">Fresh measurements from the pushed build. Certified results and time-limited incumbent results are counted separately so the score is not overstated.</p>
+  <div class="meta">
+    <span>Commit <code>7e47f9b2a597a07db31950bd7a47af228ae5e07d</code></span>
+    <span>Run date: 25 Aug 2026</span>
+    <span>CPU: AMD Ryzen 7 7435HS · 16 threads</span>
+    <span>GPU: NVIDIA RTX 3050 A · 4093.5 MB</span>
+  </div>
+
+  <section class="section">
+    <div class="grid score-grid">
+      <div class="card"><div class="metric-label">Feasible LP optimum</div><div class="metric-value good">93 / 93</div><div class="metric-note">100% validated; 3 row-cap skips</div></div>
+      <div class="card"><div class="metric-label">Infeasible LP certification</div><div class="metric-value warn">28 / 29</div><div class="metric-note">1 inconclusive, 0 wrong acceptances</div></div>
+      <div class="card"><div class="metric-label">MIP certified exact</div><div class="metric-value warn">1 / 5</div><div class="metric-note">20%; four hit the 60 s limit</div></div>
+      <div class="card"><div class="metric-label">MIP incumbent match</div><div class="metric-value blue">1 / 5</div><div class="metric-note">Not an optimality certificate</div></div>
+    </div>
+  </section>
+
+  <section class="section grid two">
+    <div class="card chart">
+      <h2>Certification score</h2>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">Feasible LP</div><div class="track"><div class="fill good" style="width:100%"></div></div><div class="bar-value">100.0%</div></div>
+        <div class="bar-row"><div class="bar-label">Infeasible LP</div><div class="track"><div class="fill warn" style="width:96.55%"></div></div><div class="bar-value">96.6%</div></div>
+        <div class="bar-row"><div class="bar-label">MIP certified</div><div class="track"><div class="fill warn" style="width:20%"></div></div><div class="bar-value">20.0%</div></div>
+        <div class="bar-row"><div class="bar-label">MIP incumbent match</div><div class="track"><div class="fill blue" style="width:20%"></div></div><div class="bar-value">20.0%</div></div>
+      </div>
+      <p class="note">Combined executed LP certification: 121 / 122 = 99.2%, with one inconclusive case and zero wrong certified answers.</p>
+    </div>
+    <div class="card chart">
+      <h2>LP timing summary</h2>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">Geometric mean</div><div class="track"><div class="fill blue" style="width:0.095%"></div></div><div class="bar-value">0.028 s</div></div>
+        <div class="bar-row"><div class="bar-label">Median</div><div class="track"><div class="fill blue" style="width:0.065%"></div></div><div class="bar-value">0.019 s</div></div>
+        <div class="bar-row"><div class="bar-label">95th percentile</div><div class="track"><div class="fill blue" style="width:16.78%"></div></div><div class="bar-value">4.932 s</div></div>
+        <div class="bar-row"><div class="bar-label">Maximum</div><div class="track"><div class="fill purple" style="width:100%"></div></div><div class="bar-value">29.398 s</div></div>
+      </div>
+      <p class="note">93 feasible instances; 512,682 total iterations. Bars are scaled to the 29.398 s maximum.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="card">
+      <h2>MIP result by instance</h2>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">gen-ip002 · incumbent match</div><div class="track"><div class="fill blue" style="width:100%"></div></div><div class="bar-value">−4783.7333916</div></div>
+        <div class="bar-row"><div class="bar-label">gen-ip054 · time limit</div><div class="track"><div class="fill warn" style="width:100%"></div></div><div class="bar-value">6857.6490553</div></div>
+        <div class="bar-row"><div class="bar-label">markshare2 · time limit</div><div class="track"><div class="fill warn" style="width:3.37%"></div></div><div class="bar-value">231</div></div>
+        <div class="bar-row"><div class="bar-label">neos859080 · certified infeasible</div><div class="track"><div class="fill good" style="width:0.02%"></div></div><div class="bar-value">infeasible</div></div>
+        <div class="bar-row"><div class="bar-label">pk1 · time limit</div><div class="track"><div class="fill warn" style="width:0.92%"></div></div><div class="bar-value">44</div></div>
+      </div>
+      <div class="legend"><span class="lg-good">certified exact</span><span class="lg-blue">incumbent matches reference</span><span class="lg-warn">time-limited / not proven</span></div>
+      <div class="callout" style="margin-top:18px"><strong>Correct interpretation:</strong> gen-ip002 found the reference objective to the recorded tolerance, but its status remained <code>TIME_LIMIT</code>. It is counted as an incumbent match, not as a certified optimum.</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="card">
+      <h2>Fresh MIP measurements</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Instance</th><th>Status</th><th>Ours</th><th>Reference</th><th>Abs. error</th><th>Nodes</th><th>LPs</th><th>CPU s</th><th>CPU %</th><th>Peak RSS</th><th>GPU MB</th><th>Best bound</th><th>Gap</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td>gen-ip002</td><td class="status-limit">TIME_LIMIT</td><td>−4783.7333916</td><td>−4783.733392</td><td>3.999994e−7</td><td>286,947</td><td>287,109</td><td>63.886</td><td>106.312%</td><td>204.562 MB</td><td>849.3 → 849.3</td><td>−4803.75110845</td><td>0.00418366</td><td>INCUMBENT_ONLY</td></tr>
+            <tr><td>gen-ip054</td><td class="status-limit">TIME_LIMIT</td><td>6857.6490553</td><td>6840.96564179</td><td>16.68341355</td><td>239,802</td><td>240,158</td><td>63.819</td><td>106.135%</td><td>204.562 MB</td><td>849.3 → 849.3</td><td>6796.28333409</td><td>0.00894720</td><td>MISMATCH</td></tr>
+            <tr><td>markshare2</td><td class="status-limit">TIME_LIMIT</td><td>231</td><td>1</td><td>230</td><td>665,063</td><td>665,329</td><td>64.037</td><td>106.566%</td><td>291.703 MB</td><td>849.3 → 849.3</td><td>0</td><td>0.99568966</td><td>MISMATCH</td></tr>
+            <tr><td>neos859080</td><td class="status-exact">INFEASIBLE</td><td>—</td><td>—</td><td>0</td><td>331</td><td>1,031</td><td>0.902</td><td>100.082%</td><td>291.703 MB</td><td>849.3 → 849.3</td><td>∞</td><td>∞</td><td>EXACT</td></tr>
+            <tr><td>pk1</td><td class="status-limit">TIME_LIMIT</td><td>44</td><td>11</td><td>33</td><td>120,615</td><td>120,863</td><td>64.144</td><td>106.805%</td><td>291.703 MB</td><td>849.3 → 849.3</td><td>7.84286621</td><td>0.80349186</td><td>MISMATCH</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">GPU memory stayed flat because certified MILP node bounds use the CPU simplex path; the GPU was available but not used for branch-and-bound proof work.</p>
+    </div>
+  </section>
+
+  <section class="section grid two">
+    <div class="card">
+      <h2>Resource profile</h2>
+      <h3>Fresh feasible LP sweep</h3>
+      <div class="resource-bars">
+        <div class="resource-row"><span>Wall time</span><div class="track"><div class="fill blue" style="width:100%"></div></div><span>98.640 s</span></div>
+        <div class="resource-row"><span>CPU time</span><div class="track"><div class="fill purple" style="width:100%"></div></div><span>680.183 s</span></div>
+        <div class="resource-row"><span>Peak RSS</span><div class="track"><div class="fill good" style="width:21.47%"></div></div><span>214.7 MB</span></div>
+        <div class="resource-row"><span>GPU used</span><div class="track"><div class="fill warn" style="width:20.75%"></div></div><span>849.3 MB</span></div>
+      </div>
+      <p class="note">CPU utilization: 689.6% aggregate. GPU capacity: 4093.5 MB.</p>
+    </div>
+    <div class="card">
+      <h2>LP infeasibility audit</h2>
+      <div class="bar-chart">
+        <div class="bar-row"><div class="bar-label">Correctly rejected</div><div class="track"><div class="fill good" style="width:96.55%"></div></div><div class="bar-value">28</div></div>
+        <div class="bar-row"><div class="bar-label">Inconclusive</div><div class="track"><div class="fill warn" style="width:3.45%"></div></div><div class="bar-value">1</div></div>
+        <div class="bar-row"><div class="bar-label">Wrongly accepted</div><div class="track"><div class="fill bad" style="width:0%"></div></div><div class="bar-value">0</div></div>
+      </div>
+      <p class="note">This is a separate correctness gate: an infeasible LP must never be reported as optimal.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="card">
+      <h2>Benchmark protocol</h2>
+      <ul class="source-list">
+        <li>LP feasible: all eligible Netlib files under the 20,000-row cap, presolve enabled, hybrid LP mode.</li>
+        <li>LP infeasible: every file in the separate Netlib infeasible collection, 20,000-row cap.</li>
+        <li>MIP: five independent MIPLIB 2017 subset instances, official <code>miplib2017-v36.solu</code> references, reliability branching, 60 seconds per instance.</li>
+        <li>Certified MIP score counts only solver status <code>OPTIMAL</code> or a proven <code>INFEASIBLE</code> result with reference agreement.</li>
+        <li>Time-limit results remain visible as incumbents and gaps, but are not counted as exact.</li>
+      </ul>
+      <p class="note">Sources: <a href="https://netlib.org/lp/">Netlib LP collection</a> · <a href="https://miplib.zib.de/set_benchmark.html">MIPLIB benchmark set</a> · <a href="https://miplib.zib.de/download.html">MIPLIB official solution data</a></p>
+    </div>
+  </section>
+
+  <footer>Generated from fresh benchmark runs on commit <code>7e47f9b2a597a07db31950bd7a47af228ae5e07d</code>. Existing untracked build artifacts were not included in the report commit.</footer>
+</main>
+</body>
+</html>
