@@ -353,69 +353,6 @@ static void milp_heuristic_round(milp *M, const double *xrel)
     free(savelo); free(savehi);
 }
 
-/* Binary covering repair for set-covering style roots.  It fixes only binary
- * variables, greedily adding a column when a lower-row activity is short, and
- * then lets the LP re-optimize continuous variables.  This is a bounded
- * incumbent heuristic; all bounds are restored and the independent verifier
- * still controls acceptance. */
-static void milp_heuristic_cover(milp *M, const double *xrel)
-{
-    const sk_model *m = M->m;
-    double *trial = NULL, *activity = NULL, *savelo = NULL, *savehi = NULL;
-    int i, j, p, pass, found = 0, feasible = 1;
-    double obj;
-    sk_result r;
-
-    trial = (double *)calloc((size_t)m->ncol, sizeof(double));
-    activity = (double *)calloc((size_t)m->nrow, sizeof(double));
-    savelo = (double *)malloc((size_t)m->ncol * sizeof(double));
-    savehi = (double *)malloc((size_t)m->ncol * sizeof(double));
-    if ((!trial && m->ncol) || (!activity && m->nrow) || !savelo || !savehi) goto done;
-    memcpy(savelo, M->nlow, (size_t)m->ncol * sizeof(double));
-    memcpy(savehi, M->nupp, (size_t)m->ncol * sizeof(double));
-    for (j = 0; j < m->ncol; ++j) {
-        int binary = is_int_var(m, j) && M->nlow[j] >= -1e-9 && M->nupp[j] <= 1.0 + 1e-9;
-        trial[j] = binary ? floor(xrel[j] + 1e-7) : xrel[j];
-        if (binary && trial[j] > 0.5) trial[j] = 1.0;
-    }
-    for (j = 0; j < m->ncol; ++j)
-        for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) activity[m->A.i[p]] += m->A.x[p] * trial[j];
-    for (pass = 0; pass < m->ncol; ++pass) {
-        int row = -1, best = -1;
-        double best_score = -MILP_INF;
-        for (i = 0; i < m->nrow; ++i)
-            if (!SK_IS_NEG_INF(m->rlow[i]) && SK_IS_INF(m->rupp[i]) &&
-                activity[i] < m->rlow[i] - 1e-7) { row = i; break; }
-        if (row < 0) { found = 1; break; }
-        for (j = 0; j < m->ncol; ++j) {
-            double a = 0.0, score;
-            if (!is_int_var(m, j) || M->nlow[j] < -1e-9 || M->nupp[j] > 1.0 + 1e-9 || trial[j] > 0.5) continue;
-            for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) if (m->A.i[p] == row) a += m->A.x[p];
-            if (a <= 1e-12) continue;
-            score = a / (1.0 + fmax(0.0, m->c[j]));
-            if (score > best_score) { best_score = score; best = j; }
-        }
-        if (best < 0) { feasible = 0; break; }
-        trial[best] = 1.0;
-        for (p = m->A.p[best]; p < m->A.p[best + 1]; ++p) activity[m->A.i[p]] += m->A.x[p];
-    }
-    if (feasible && found) {
-        for (j = 0; j < m->ncol; ++j)
-            if (is_int_var(m, j) && M->nlow[j] >= -1e-9 && M->nupp[j] <= 1.0 + 1e-9)
-                M->nlow[j] = M->nupp[j] = trial[j];
-        if (milp_propagate(M, 2)) {
-            r = milp_solve_lp(M, &obj);
-            if (r == SK_RESULT_OPTIMAL && M->ls.primal_infeasibility <= 1e-6 &&
-                (!M->have_incumbent || obj < M->incumbent_obj - 1e-12) &&
-                milp_accept(M, M->ls.x, obj)) M->st.heuristic_hits++;
-        }
-    }
-    memcpy(M->nlow, savelo, (size_t)m->ncol * sizeof(double));
-    memcpy(M->nupp, savehi, (size_t)m->ncol * sizeof(double));
-done:
-    free(trial); free(activity); free(savelo); free(savehi);
-}
-
 /* Pseudocost branching. */
 static int milp_select_branch(milp *M, const double *x, double *frac_out)
 {
@@ -535,10 +472,7 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         if (seed < 1e-6) seed = 1e-6;
         M.pc_down[j] = seed; M.pc_up[j] = seed;
     }
-    if (o->mip_heuristics) {
-        milp_heuristic_round(&M, M.ls.x);
-        if (!M.have_incumbent) milp_heuristic_cover(&M, M.ls.x);
-    }
+    if (o->mip_heuristics) milp_heuristic_round(&M, M.ls.x);
 
     current = node_child(NULL, 0, 0, 0.0, root_obj, 0.0);
     if (!current) { rc = SK_ERR_MEMORY; goto cleanup; }
