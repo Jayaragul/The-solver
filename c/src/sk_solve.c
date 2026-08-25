@@ -232,6 +232,7 @@ static void qp_active_polish(const sk_model *m, double *x, double *y)
         for (i = 0; i < nf; ++i) {
             int v = free_var[i];
             grad[v] = m->c[v] + qx[v];
+            for (p = m->A.p[v]; p < m->A.p[v + 1]; ++p) grad[v] += m->A.x[p] * y[m->A.i[p]];
             rhs[i] = -grad[v];
             for (p = m->Q->p[v]; p < m->Q->p[v + 1]; ++p) {
                 int row = m->Q->i[p], q;
@@ -259,7 +260,7 @@ static void qp_active_polish(const sk_model *m, double *x, double *y)
             if (!SK_IS_INF(m->cupp[free_var[i]]) && x[free_var[i]] > m->cupp[free_var[i]]) x[free_var[i]] = m->cupp[free_var[i]];
             if (fabs(rhs[i]) > max_step) max_step = fabs(rhs[i]);
         }
-        for (j = 0; j < na; ++j) y[active_row[j]] = rhs[nf + j];
+        for (j = 0; j < na; ++j) y[active_row[j]] = orig_y[active_row[j]] + rhs[nf + j];
         if (max_step <= 1e-9) break;
     }
     after = qp_kkt_score(m, x, y);
