@@ -70,7 +70,10 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Small convex QPs receive a bounded dense active-set KKT polish; its output is
   accepted only when the independent verifier confirms a strict KKT improvement.
 - Native interval presolve detects contradictory column bounds and row-activity
-  intervals in `O(nnz + rows + columns)` before solving or branching.
+  intervals in `O(nnz + rows + columns)` before solving or branching. The
+  revised-simplex path also applies non-mutating singleton-row bound tightening
+  before basis construction, avoiding needless Phase I pivots for simple
+  implied bounds.
 - MILP limit reports retain the active node's valid relaxation bound, so a
   timeout or node limit cannot accidentally overstate the proven dual bound.
 - Every MILP incumbent is independently rechecked for row bounds, variable
@@ -110,8 +113,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native MILP branch-and-bound/cut smoke | binary row receives a validated cover cut, reaches `(1,0)`, objective `-2`, and closes the proven gap; controlled ablation is 0 versus 3 nodes | passed |
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
-| Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 31/31 C and CUDA smoke tests passed | passed |
+| Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1`; simplex singleton tightening starts `x >= 2` at its implied bound | passed |
+| Full CMake test suite | 32/32 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |

@@ -80,6 +80,63 @@ static void spx_free(spx *S)
     memset(S, 0, sizeof(*S));
 }
 
+/* Tighten bounds implied by rows with exactly one nonzero coefficient. This
+ * is deliberately non-mutating: simplex receives a shallow model copy whose
+ * bounds belong to this routine, while the caller's model remains the
+ * authority for verification and postsolve. */
+static sk_status spx_singleton_presolve(const sk_model *m, const sk_options *o,
+                                        sk_model *work, double **lower_out,
+                                        double **upper_out, int *infeasible)
+{
+    double *lower = NULL, *upper = NULL;
+    int *count = NULL, *column = NULL;
+    double *coefficient = NULL;
+    int i, j, p;
+
+    *lower_out = NULL; *upper_out = NULL; *infeasible = 0;
+    *work = *m;
+    if (!o->presolve || m->ncol == 0 || m->nrow == 0) return SK_OK;
+    lower = (double *)malloc((size_t)m->ncol * sizeof(double));
+    upper = (double *)malloc((size_t)m->ncol * sizeof(double));
+    count = (int *)calloc((size_t)m->nrow, sizeof(int));
+    column = (int *)malloc((size_t)m->nrow * sizeof(int));
+    coefficient = (double *)malloc((size_t)m->nrow * sizeof(double));
+    if (!lower || !upper || !count || !column || !coefficient) {
+        free(lower); free(upper); free(count); free(column); free(coefficient);
+        return SK_ERR_MEMORY;
+    }
+    memcpy(lower, m->clow, (size_t)m->ncol * sizeof(double));
+    memcpy(upper, m->cupp, (size_t)m->ncol * sizeof(double));
+    for (j = 0; j < m->ncol; ++j) for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) {
+        const int row = m->A.i[p];
+        if (fabs(m->A.x[p]) <= SPX_DROP_TOL) continue;
+        if (count[row]++ == 0) { column[row] = j; coefficient[row] = m->A.x[p]; }
+    }
+    for (i = 0; i < m->nrow; ++i) if (count[i] == 1) {
+        const int col = column[i];
+        const double a = coefficient[i];
+        if (!SK_IS_NEG_INF(m->rlow[i])) {
+            const double bound = m->rlow[i] / a;
+            if (a > 0.0) { if (bound > lower[col]) lower[col] = bound; }
+            else { if (bound < upper[col]) upper[col] = bound; }
+        }
+        if (!SK_IS_INF(m->rupp[i])) {
+            const double bound = m->rupp[i] / a;
+            if (a > 0.0) { if (bound < upper[col]) upper[col] = bound; }
+            else { if (bound > lower[col]) lower[col] = bound; }
+        }
+        if (lower[col] > upper[col] + (o->primal_tol > 0.0 ? o->primal_tol : 1e-7)) {
+            *infeasible = 1;
+            break;
+        }
+    }
+    free(count); free(column); free(coefficient);
+    if (*infeasible) { free(lower); free(upper); return SK_OK; }
+    work->clow = lower; work->cupp = upper;
+    *lower_out = lower; *upper_out = upper;
+    return SK_OK;
+}
+
 /* Build M = [A  -I] and the working bound/cost arrays. */
 static sk_status spx_build(spx *S, const sk_model *m, const sk_options *o)
 {
@@ -407,8 +464,11 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
                            sk_solution *s, sk_spx_stats *stats)
 {
     spx S;
+    sk_model work;
     sk_options defaults;
     sk_status st;
+    double *presolve_lower = NULL, *presolve_upper = NULL;
+    int presolve_infeasible = 0;
     int phase1, bland = 0, j, k, p;
     long long stall = 0, itlimit;
     double last_infeas = INFINITY, t0, tphase;
@@ -416,16 +476,25 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
 
     if (!m || !s) return SK_ERR_ARG;
     if (!o) { sk_options_default(&defaults); o = &defaults; }
+    st = spx_singleton_presolve(m, o, &work, &presolve_lower, &presolve_upper,
+                                &presolve_infeasible);
+    if (st != SK_OK) return st;
+    if (presolve_infeasible) {
+        s->result = SK_RESULT_INFEASIBLE;
+        s->ncol = m->ncol; s->nrow = m->nrow;
+        s->primal_infeasibility = INFINITY;
+        return SK_OK;
+    }
     itlimit = (o->iteration_limit > 0) ? o->iteration_limit
                                        : (long long)20000 + 200LL * (m->nrow + m->ncol);
 
-    st = spx_build(&S, m, o);
-    if (st != SK_OK) return st;
+    st = spx_build(&S, &work, o);
+    if (st != SK_OK) { free(presolve_lower); free(presolve_upper); return st; }
     t0 = sk_wall_seconds();
     tphase = t0;
 
     st = spx_refactorize(&S);
-    if (st != SK_OK) { spx_free(&S); return st; }
+    if (st != SK_OK) { spx_free(&S); free(presolve_lower); free(presolve_upper); return st; }
 
     phase1 = (spx_infeasibility(&S) > S.primal_tol);
 
@@ -591,7 +660,7 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     if (!s->y)      s->y = (double *)calloc((size_t)m->nrow + 1, sizeof(double));
     if (!s->rc)     s->rc = (double *)calloc((size_t)m->ncol + 1, sizeof(double));
     if (!s->rowact) s->rowact = (double *)calloc((size_t)m->nrow + 1, sizeof(double));
-    if (!s->x || !s->y || !s->rc || !s->rowact) { spx_free(&S); return SK_ERR_MEMORY; }
+    if (!s->x || !s->y || !s->rc || !s->rowact) { spx_free(&S); free(presolve_lower); free(presolve_upper); return SK_ERR_MEMORY; }
     s->ncol = m->ncol; s->nrow = m->nrow;
 
     /* back to the original variable space: x = C x~ */
@@ -615,6 +684,7 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     if (stats) *stats = S.st;
 
     spx_free(&S);
+    free(presolve_lower); free(presolve_upper);
 
     /* Residuals and reduced costs come from the independent checker, never
      * from solver-internal state. */
