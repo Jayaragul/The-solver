@@ -64,7 +64,8 @@ if(SANKHYA_BUILD_TESTS)
         COMMAND sk_mip ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/knapsack.mps --quiet)
     add_test(NAME sk_bench_smoke
         COMMAND sk_bench ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/unit_lp.mps
-                         ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/tiny_qp.qps)
+                         ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/tiny_qp.qps
+                         ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/knapsack.mps)
     add_executable(sankhya_model_smoke c/tests/model_smoke.c)
     target_link_libraries(sankhya_model_smoke PRIVATE sankhya_core)
     add_test(NAME sankhya_model_smoke COMMAND sankhya_model_smoke)
