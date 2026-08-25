@@ -32,9 +32,9 @@ build\cmake-cuda\sk_qp.exe <instance>.QPS \
 | DPKLO1 | 77 | 133 | 1575 | 77 | optimal | 0.370096217114 | 3.553e-15 | 340 | 0.007381 |
 
 `HS35MOD` and `DPKLO1` are claimed optimal in this baseline. The remaining rows are
-explicitly retained as limits, motivating the next QP work: an active-set or
-interior-point KKT path for sparse convex QPs, followed by a full benchmark
-comparison against an established open-source solver.
+explicitly retained as limits, motivating the next QP work: extending the
+guarded KKT paths to sparse convex QPs, followed by a full benchmark comparison
+against an established open-source solver.
 
 ## Input hashes
 

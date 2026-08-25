@@ -169,6 +169,8 @@ static int qp_diagonal_unconstrained(const sk_model *m, const sk_options *o,
     return 1;
 }
 
+static int qp_dense_solve(double *a, double *b, int n);
+
 /* Exact KKT solve for small equality-constrained QPs without variable bounds.
  * This is deliberately guarded: redundant constraints or an indefinite
  * Hessian simply fall back to the general verified PDHG path. */

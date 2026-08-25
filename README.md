@@ -199,7 +199,8 @@ iterations/nodes, wall time, memory, machine, compiler, and dataset hashes.
 3. Extend the native MPS reader with QPS support, sparse Hessian storage, and independent certificate checking.
 4. Extend the revised-simplex LP path with full presolve/postsolve and broader
    Netlib regression coverage.
-5. Generalize the diagonal-QP prototype to convex sparse-QP KKT/interior-point solves.
+5. Extend the guarded diagonal/equality-QP KKT paths to broader convex sparse-QP
+   KKT/interior-point solves.
 6. Add validated cuts, conflict analysis, and parallel node search to the
    exact-simplex MILP branch-and-bound path.
 7. Run frozen Netlib/Mittelmann/QPLIB/MIPLIB comparisons against an isolated
