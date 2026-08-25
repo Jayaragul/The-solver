@@ -90,12 +90,13 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | HiGHS comparison on AFIRO | isolated HiGHS 1.15.1 baseline recorded | passed |
 | CUDA diagonal-QP smoke test | known solution `x=2`, objective `-4` | passed |
 | Native sparse-QP smoke test | QPS parse → constrained QP solve → independent quadratic objective check | passed |
+| Native general-QP active-set smoke | off-diagonal convex Hessian with an active inequality; exact KKT objective `-2.25` | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 24/24 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 25/25 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |

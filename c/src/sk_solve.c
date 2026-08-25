@@ -260,8 +260,7 @@ static int qp_active_enumerate(const sk_model *m, const sk_options *o,
                 double coeff = 0.0;
                 for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
                     if (m->A.i[p] == row) { coeff = m->A.x[p]; break; }
-                if (vstat[j] == 0) kmat[(nf + i) * dim + vmap[j]] += coeff;
-                else rhs[nf + i] -= coeff * x[j];
+                if (vstat[j] != 0) rhs[nf + i] -= coeff * x[j];
             }
         }
         if (dim > 0 && !qp_dense_solve(kmat, rhs, dim)) goto next_pattern;
