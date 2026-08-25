@@ -35,7 +35,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   nonnegative diagonal Hessians; it returns an independently verified solution
   without entering the iterative PDHG loop.
 - Small bound-free QPs with all-equality rows use a guarded dense KKT solve;
-  singular, non-convex, bounded, or inequality models remain on verified PDHG.
+  singular or rank-deficient KKT systems fall back, while bounded or inequality
+  models remain on verified PDHG.
 - Small unconstrained QPs with a general sparse Hessian also use the guarded
   dense KKT path (`Qx = -c`); larger models retain sparse PDHG.
 - Small non-convex Hessians are rejected as unsupported rather than being
@@ -43,7 +44,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
   pseudocost branching, incumbent-driven objective bound propagation, rounding
-  rounding heuristics, and best-bound backtracking.
+  heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
   Cuts, conflict analysis, parallel search, and MIQP remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
