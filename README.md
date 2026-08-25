@@ -48,6 +48,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   intervals in `O(nnz + rows + columns)` before solving or branching.
 - MILP limit reports retain the active node's valid relaxation bound, so a
   timeout or node limit cannot accidentally overstate the proven dual bound.
+- Every MILP incumbent is independently rechecked for row bounds, variable
+  bounds, and integrality before it can affect pruning or the final gap.
 - CMake targets for native C smoke tests and optional CUDA smoke tests.
 
 ## Evidence status — 25 August 2026
