@@ -475,6 +475,7 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     sk_result result = SK_RESULT_NUMERIC_FAILURE;
 
     if (!m || !s) return SK_ERR_ARG;
+    if (sk_model_validate(m) != SK_OK) return SK_ERR_STRUCTURE;
     if (!o) { sk_options_default(&defaults); o = &defaults; }
     st = spx_singleton_presolve(m, o, &work, &presolve_lower, &presolve_upper,
                                 &presolve_infeasible);

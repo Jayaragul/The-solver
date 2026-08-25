@@ -768,6 +768,7 @@ sk_status sk_solve(const sk_model *m, const sk_options *options, sk_solution *s)
 {
     sk_options fallback;
     if (!m || !s) return SK_ERR_ARG;
+    if (sk_model_validate(m) != SK_OK) return SK_ERR_STRUCTURE;
     if (!options) { sk_options_default(&fallback); options = &fallback; }
     if (options->lp_engine < SK_LP_AUTO || options->lp_engine > SK_LP_FIRST_ORDER)
         return SK_ERR_ARG;

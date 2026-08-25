@@ -7,6 +7,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 
 - C-compatible sparse CSC model ownership, validation, matrix-vector products,
   and transpose products in `c/`.
+- Public native model validation rejects malformed CSC offsets/indices,
+  non-finite coefficients or costs, inconsistent bounds, invalid variable
+  types, and incompatible QP dimensions before a solver or verifier uses them.
 - Native C MPS reader for LP/MILP rows, bounds, integer markers, ranges, and
   objective coefficients.
 - Native QPS second pass for `QUADOBJ`, `QMATRIX`, and `QSECTION`, storing a
@@ -118,7 +121,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1`; simplex singleton tightening starts `x >= 2` at its implied bound | passed |
-| Full CMake test suite | 32/32 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 33/33 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |

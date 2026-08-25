@@ -100,6 +100,9 @@ typedef struct sk_model {
 void      sk_model_init(sk_model *m);
 void      sk_model_free(sk_model *m);
 sk_status sk_model_alloc(sk_model *m, int nrow, int ncol, int nzmax);
+/* Validate dimensions, canonical CSC structure, finite coefficients/costs,
+ * bounds, and optional-Q dimensions before handing a model to a solver. */
+sk_status sk_model_validate(const sk_model *m);
 int       sk_model_num_integer(const sk_model *m);
 
 /* MPS reader: fixed and free format, RANGES / BOUNDS / OBJSENSE, and the

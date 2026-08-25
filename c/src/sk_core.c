@@ -123,6 +123,37 @@ sk_status sk_model_alloc(sk_model *m, int nrow, int ncol, int nzmax)
     return SK_OK;
 }
 
+static sk_status csc_validate(const sk_csc *a, int rows, int cols)
+{
+    int j, p, nnz;
+    if (!a || a->nrow != rows || a->ncol != cols || a->nzmax < 0 || !a->p) return SK_ERR_STRUCTURE;
+    if (a->p[0] != 0) return SK_ERR_STRUCTURE;
+    nnz = a->p[cols];
+    if (nnz < 0 || nnz > a->nzmax || (nnz > 0 && (!a->i || !a->x))) return SK_ERR_STRUCTURE;
+    for (j = 0; j < cols; ++j)
+        if (a->p[j] < 0 || a->p[j] > a->p[j + 1] || a->p[j + 1] > nnz) return SK_ERR_STRUCTURE;
+    for (p = 0; p < nnz; ++p)
+        if (a->i[p] < 0 || a->i[p] >= rows || !isfinite(a->x[p])) return SK_ERR_STRUCTURE;
+    return SK_OK;
+}
+
+sk_status sk_model_validate(const sk_model *m)
+{
+    int i;
+    if (!m || m->nrow < 0 || m->ncol < 0) return SK_ERR_ARG;
+    if (csc_validate(&m->A, m->nrow, m->ncol) != SK_OK) return SK_ERR_STRUCTURE;
+    if ((m->ncol && (!m->c || !m->clow || !m->cupp || !m->vartype)) ||
+        (m->nrow && (!m->rlow || !m->rupp))) return SK_ERR_STRUCTURE;
+    for (i = 0; i < m->ncol; ++i)
+        if (!isfinite(m->c[i]) || isnan(m->clow[i]) || isnan(m->cupp[i]) ||
+            m->clow[i] > m->cupp[i] ||
+            (m->vartype[i] != SK_CONTINUOUS && m->vartype[i] != SK_INTEGER)) return SK_ERR_STRUCTURE;
+    for (i = 0; i < m->nrow; ++i)
+        if (isnan(m->rlow[i]) || isnan(m->rupp[i]) || m->rlow[i] > m->rupp[i]) return SK_ERR_STRUCTURE;
+    if (m->Q && csc_validate(m->Q, m->ncol, m->ncol) != SK_OK) return SK_ERR_STRUCTURE;
+    return SK_OK;
+}
+
 int sk_model_num_integer(const sk_model *m)
 {
     int j, n = 0;
@@ -369,6 +400,7 @@ sk_status sk_verify(const sk_model *m, sk_solution *s)
     const double bt = 1e-9;   /* how close counts as "at" a bound */
 
     if (!m || !s || !s->x) return SK_ERR_ARG;
+    if (sk_model_validate(m) != SK_OK) return SK_ERR_STRUCTURE;
 
     act = (double *)calloc((size_t)m->nrow + 1, sizeof(double));
     rc  = (double *)calloc((size_t)m->ncol + 1, sizeof(double));
