@@ -33,3 +33,20 @@ build\cmake-cuda\sk_qp.exe <instance>.QPS \
 explicitly retained as limits, motivating the next QP work: an active-set or
 interior-point KKT path for sparse convex QPs, followed by a full benchmark
 comparison against an established open-source solver.
+
+## Input hashes
+
+SHA-256 (lowercase):
+
+```text
+HS35MOD.QPS  d7bdecfb4c425d5fbb6e3ba4321a7193bbec0e40c4aedf79d6d5f5739c5e5023
+QPCBLEND.QPS 45aff6b9792885d2fe23e4971061fcce41fb35df683a1323c7b9241e4e78cbf9
+QPCBOEI1.QPS 0d4e39f9458bb7b1ec45a44b63eef65411f1b013c8803ad6d43ef9b86e015428
+QPCBOEI2.QPS 4d6a8c31327b8f40e66cfd564ae6d1957b287701005ece47fa4f9746c0f2dc00
+QSCAGR7.QPS  6f7d5957423ca8b0e17af7fac8f3d29cfc877512aab148db78c1c843d55d3f29
+QSCFXM1.QPS  6ee5617212fee6f47fb5ce65b950b03097a01f62cd93bb90dc5a096cfc8f6fa7
+QSCSD1.QPS   cd45e4b1f0ba1c97e86b6206247b5d83da63941ee5d84f677452e2f5ca9c46b1
+QSHIP04S.QPS 219ea5310b164982a99d48ed2ec88b72985c10bab5a355e91329c963686cdb2f
+QSTANDAT.QPS 289f34fe700e68dd14db6c3ccf4ff835d9eac1dedf7b330bf7866f85eb612fa7
+DPKLO1.QPS   7a49c5707a22c8fc45f7ad74c848d7a3fa872ea98d6fb8356d253686e0a61c16
+```

@@ -33,3 +33,15 @@ Summary: 3/5 instances were proven optimal within the fixed limit; the other
 two retained valid root dual bounds but no incumbent was found. These results
 are a capability record, not a performance ranking. A commercial/open-source
 comparison is maintained separately in the Netlib/HiGHS record.
+
+## Input hashes
+
+SHA-256 (lowercase):
+
+```text
+p0033.mps  8ccff819023237c79ef32e238a5da9348725ce9a4425d48888baf3a0b3b42628
+bell5.mps  d4846d7ea889d482e32842832e599ca6d0dc04fd8ea3ea58f49a52b436859dd5
+stein27.mps b8889994eda0853d71bad6ba9bf45755d4e59f33a13a3f43008e1ba681738c5b
+flugpl.mps ed4b1fcb07d26b513027721d61344c2c4371cb506bf66098df328047c183b0c0
+set1ch.mps d001258f10bf0970215fe857b4bd0a425a736cc018ce763a4ec533f924bf2867
+```

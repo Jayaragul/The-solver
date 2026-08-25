@@ -22,3 +22,14 @@ The `cycle` result now agrees with the independently measured HiGHS objective
 three rows remain time limits and are not presented as optimality claims.
 This is a targeted regression record, not a replacement for the full Netlib
 comparison or a performance ranking.
+
+## Input hashes
+
+SHA-256 (lowercase):
+
+```text
+cycle.mps  bfc8edde30952b8dfa354679ea3a3231c2e7eb762c0ff8f0f845505741816d53
+d6cube.mps 8cd94ee7783bcbce884acde1f4769f5c79739c9460fe73cb948924e724b02dfa
+dfl001.mps 85d47c5f8a5fc53772eabac1805b7a1af72431cad9e14d26d673043980952730
+modszk1.mps af109be42aa6bd62fc307b623184c69f1030db2f8e1682c636b387a49fd8da43
+```

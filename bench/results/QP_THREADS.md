@@ -23,3 +23,9 @@ build\cmake-cuda\sk_qp.exe bench\data\qp_test_problems\QPS_Files\QSTANDAT.QPS \
 The four-thread run is about 6.4% faster than the serial run on this laptop;
 the eight-thread regression demonstrates why thread count must remain a
 benchmark-controlled option rather than a universal default.
+
+Input SHA-256 (`QSTANDAT.QPS`):
+
+```text
+289f34fe700e68dd14db6c3ccf4ff835d9eac1dedf7b330bf7866f85eb612fa7
+```
