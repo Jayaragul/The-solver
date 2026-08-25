@@ -385,15 +385,31 @@ static void milp_heuristic_round(milp *M, const double *xrel)
 {
     const sk_model *m = M->m;
     double *savelo = NULL, *savehi = NULL;
+    double *saved_x = NULL, *saved_y = NULL;
+    sk_solution saved_relax;
+    int restore_relax = m->Q != NULL;
     double obj;
     sk_result r;
     int j, feasible = 1;
 
     savelo = (double *)malloc((size_t)m->ncol * sizeof(double));
     savehi = (double *)malloc((size_t)m->ncol * sizeof(double));
-    if (!savelo || !savehi) { free(savelo); free(savehi); return; }
+    if (restore_relax) {
+        saved_x = (double *)malloc((size_t)m->ncol * sizeof(double));
+        saved_y = (double *)malloc((size_t)m->nrow * sizeof(double));
+    }
+    if (!savelo || !savehi || (restore_relax && ((!saved_x && m->ncol) || (!saved_y && m->nrow)))) {
+        free(savelo); free(savehi); free(saved_x); free(saved_y); return;
+    }
     memcpy(savelo, M->nlow, (size_t)m->ncol * sizeof(double));
     memcpy(savehi, M->nupp, (size_t)m->ncol * sizeof(double));
+    if (restore_relax) {
+        memcpy(saved_x, M->ls.x, (size_t)m->ncol * sizeof(double));
+        if (m->nrow) memcpy(saved_y, M->ls.y, (size_t)m->nrow * sizeof(double));
+        saved_relax = M->ls;
+        saved_relax.x = NULL; saved_relax.y = NULL;
+        saved_relax.rc = NULL; saved_relax.rowact = NULL;
+    }
 
     for (j = 0; j < m->ncol; j++) {
         double v;
@@ -413,7 +429,15 @@ static void milp_heuristic_round(milp *M, const double *xrel)
     }
     memcpy(M->nlow, savelo, (size_t)m->ncol * sizeof(double));
     memcpy(M->nupp, savehi, (size_t)m->ncol * sizeof(double));
+    if (restore_relax) {
+        sk_solution_free(&M->ls);
+        sk_solution_init(&M->ls);
+        M->ls = saved_relax;
+        M->ls.x = saved_x; saved_x = NULL;
+        M->ls.y = saved_y; saved_y = NULL;
+    }
     free(savelo); free(savehi);
+    free(saved_x); free(saved_y);
 }
 
 /* Pseudocost branching. */
@@ -538,10 +562,7 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
         if (seed < 1e-6) seed = 1e-6;
         M.pc_down[j] = seed; M.pc_up[j] = seed;
     }
-    /* The QP relaxation scratch object is replaced by a node solve.  Until a
-       copy-preserving QP heuristic is added, avoid invalidating the active
-       relaxation point on the guarded MIQP path. */
-    if (o->mip_heuristics && !m->Q) milp_heuristic_round(&M, M.ls.x);
+    if (o->mip_heuristics) milp_heuristic_round(&M, M.ls.x);
 
     current = node_child(NULL, 0, 0, 0.0, root_obj, 0.0);
     if (!current) { rc = SK_ERR_MEMORY; goto cleanup; }
@@ -601,7 +622,7 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
             node_free(current); current = NULL; continue;
         }
 
-        if (o->mip_heuristics && !m->Q && (M.st.nodes % 64) == 1)
+        if (o->mip_heuristics && (M.st.nodes % 64) == 1)
             milp_heuristic_round(&M, M.ls.x);
 
         {
