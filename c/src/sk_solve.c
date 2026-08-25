@@ -161,13 +161,16 @@ static double qp_kkt_score(const sk_model *m, const double *x, const double *y)
 
 static void qp_active_polish(const sk_model *m, double *x, double *y)
 {
-    int n = m->ncol, r = m->nrow, max_active, iter;
+    int n = m->ncol, r = m->nrow, max_active, iter, all_equalities = 1;
     int *free_var = NULL, *active_row = NULL;
     double *act = NULL, *qx = NULL, *grad = NULL, *kmat = NULL, *rhs = NULL;
     double *orig_x = NULL, *orig_y = NULL, before, after;
 
     if (!m->Q || n > 512 || r > 512) return;
     max_active = r + n;
+    for (iter = 0; iter < r; ++iter)
+        if (SK_IS_NEG_INF(m->rlow[iter]) || SK_IS_INF(m->rupp[iter]) ||
+            fabs(m->rlow[iter] - m->rupp[iter]) > 1e-9) { all_equalities = 0; break; }
     free_var = (int *)malloc((size_t)n * sizeof(int));
     active_row = (int *)malloc((size_t)r * sizeof(int));
     act = (double *)calloc((size_t)r, sizeof(double));
@@ -193,7 +196,7 @@ static void qp_active_polish(const sk_model *m, double *x, double *y)
             if (!SK_IS_NEG_INF(m->clow[j]) && m->clow[j] - x[j] > pinf) pinf = m->clow[j] - x[j];
             if (!SK_IS_INF(m->cupp[j]) && x[j] - m->cupp[j] > pinf) pinf = x[j] - m->cupp[j];
         }
-        if (pinf > 1e-5) goto done;
+        if (pinf > 1e-5 && !all_equalities) goto done;
     }
     before = qp_kkt_score(m, x, y);
 
@@ -209,7 +212,7 @@ static void qp_active_polish(const sk_model *m, double *x, double *y)
         for (j = 0; j < n; ++j) {
             int atlo = !SK_IS_NEG_INF(m->clow[j]) && fabs(x[j] - m->clow[j]) <= 1e-7;
             int athi = !SK_IS_INF(m->cupp[j]) && fabs(x[j] - m->cupp[j]) <= 1e-7;
-            if (!atlo && !athi) free_var[nf++] = j;
+            if (all_equalities || (!atlo && !athi)) free_var[nf++] = j;
         }
         for (i = 0; i < r; ++i) {
             int equality = !SK_IS_NEG_INF(m->rlow[i]) && !SK_IS_INF(m->rupp[i]) &&
