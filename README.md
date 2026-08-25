@@ -39,6 +39,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
+- When available, native QP transpose-SpMV uses OpenMP; `sk_qp --threads N`
+  selects the worker count while preserving a serial fallback.
 - Small convex QPs receive a bounded dense active-set KKT polish; its output is
   accepted only when the independent verifier confirms a strict KKT improvement.
 - Native interval presolve detects contradictory column bounds and row-activity

@@ -36,6 +36,15 @@ if(SANKHYA_M_LIBRARY)
     target_link_libraries(sankhya_core PUBLIC ${SANKHYA_M_LIBRARY})
 endif()
 
+# The transpose-SpMV in the native QP path has independent output columns.
+# Use OpenMP when the host toolchain provides it; the solver remains fully
+# functional and serial when it is unavailable.
+find_package(OpenMP QUIET)
+if(OpenMP_C_FOUND)
+    target_link_libraries(sankhya_core PUBLIC OpenMP::OpenMP_C)
+    target_compile_definitions(sankhya_core PUBLIC SANKHYA_HAS_OPENMP=1)
+endif()
+
 if(SANKHYA_BUILD_TESTS)
     enable_testing()
     add_test(NAME sk_simplex_unit

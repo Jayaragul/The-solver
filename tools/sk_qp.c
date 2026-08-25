@@ -16,6 +16,7 @@ static void usage(void)
         "usage: sk_qp <file.qps> [options]\n"
         "  --time-limit S    wall clock limit in seconds\n"
         "  --iter-limit N    PDHG iteration limit\n"
+        "  --threads N       OpenMP worker count for transpose-SpMV\n"
         "  --expect V        reference objective, reported as relative error\n"
         "  --quiet           suppress the human-readable header\n");
 }
@@ -38,6 +39,7 @@ int main(int argc, char **argv)
         if (i + 1 >= argc) { usage(); return 2; }
         if      (!strcmp(argv[i], "--time-limit")) o.time_limit = atof(argv[++i]);
         else if (!strcmp(argv[i], "--iter-limit")) o.iteration_limit = atoll(argv[++i]);
+        else if (!strcmp(argv[i], "--threads"))    o.threads = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--expect"))     expect = atof(argv[++i]);
         else { usage(); return 2; }
     }

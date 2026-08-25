@@ -11,6 +11,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(SANKHYA_HAS_OPENMP)
+#include <omp.h>
+#endif
 
 static double clamp_value(double x, double lo, double hi)
 {
@@ -29,9 +32,13 @@ static void csc_mv(const sk_csc *a, const double *x, double *y)
 
 static void csc_tmv(const sk_csc *a, const double *y, double *x)
 {
-    int j, p;
+    int j;
+#if defined(SANKHYA_HAS_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
     for (j = 0; j < a->ncol; ++j) {
         double sum = 0.0;
+        int p;
         for (p = a->p[j]; p < a->p[j + 1]; ++p) sum += a->x[p] * y[a->i[p]];
         x[j] = sum;
     }
@@ -295,6 +302,9 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     if (m->Q && (m->Q->nrow != n || m->Q->ncol != n)) return SK_ERR_UNSUPPORTED;
     if (!o) { sk_options_default(&defaults); o = &defaults; }
     if (o->primal_tol <= 0.0 || o->dual_tol <= 0.0) return SK_ERR_ARG;
+#if defined(SANKHYA_HAS_OPENMP)
+    if (o->threads > 0) omp_set_num_threads(o->threads);
+#endif
     if (interval_infeasible(m, o->primal_tol)) {
         sk_solution_init(s);
         s->result = SK_RESULT_INFEASIBLE;
