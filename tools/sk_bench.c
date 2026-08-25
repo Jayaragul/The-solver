@@ -109,9 +109,10 @@ int main(int argc, char **argv)
         fputs(",\"solver_version\":", stdout); json_string(sk_version());
         fputs(",\"compiler\":", stdout); json_string(SK_BENCH_COMPILER);
         fputs(",\"machine\":", stdout); json_string(SK_BENCH_MACHINE);
-        printf(",\"rows\":%d,\"cols\":%d,\"nnz\":%d,\"integers\":%d,\"quadratic\":%s,\"status\":\"%s\",\"cuts_added\":%lld,\"lp_solves\":%lld,\"objective\":",
+        printf(",\"rows\":%d,\"cols\":%d,\"nnz\":%d,\"integers\":%d,\"quadratic\":%s,\"status\":\"%s\",\"cuts_added\":%lld,\"lp_solves\":%lld,\"heuristic_hits\":%lld,\"propagations\":%lld,\"refactorizations\":%lld,\"bland_episodes\":%lld,\"objective\":",
                m.nrow, m.ncol, m.A.p[m.ncol], integers, m.Q ? "true" : "false", sk_result_name(s.result),
-               ms.cuts_added, ms.lp_solves);
+               ms.cuts_added, ms.lp_solves, ms.heuristic_hits, ms.propagations,
+               ss.refactorizations, ss.bland_episodes);
         json_number(s.objective); fputs(",\"dual_bound\":", stdout); json_number(s.dual_bound);
         fputs(",\"mip_gap\":", stdout); json_number(s.mip_gap);
         fputs(",\"primal_inf\":", stdout); json_number(s.primal_infeasibility);

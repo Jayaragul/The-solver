@@ -4,11 +4,14 @@
 2. Larger Mittelmann LPs provide the LP performance workload.
 3. Convex QPLIB instances validate QP; a frozen MIPLIB 2017 subset validates MILP.
 4. HiGHS is the initial baseline and runs in a fresh, isolated process.
-5. Both solvers receive the same original instance, limits, and thread count.
-6. Performance runs use randomized order and report the median of at least three.
-7. Every claimed LP optimum must pass an independent primal-dual certificate.
-8. Record status, objective, residuals, iterations/nodes, time, and peak memory.
-9. Any disagreement is listed per instance; timeouts and failures are never hidden.
+5. Native JSONL records retain cut, heuristic, propagation, refactorization,
+   and anti-cycling counters so algorithm changes can be audited separately
+   from wall-clock noise.
+6. Both solvers receive the same original instance, limits, and thread count.
+7. Performance runs use randomized order and report the median of at least three.
+8. Every claimed LP optimum must pass an independent primal-dual certificate.
+9. Record status, objective, residuals, iterations/nodes, time, and peak memory.
+10. Any disagreement is listed per instance; timeouts and failures are never hidden.
 
 ## Native collection command
 
