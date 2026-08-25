@@ -186,7 +186,8 @@ static int qp_active_enumerate(const sk_model *m, const sk_options *o,
     double *x = NULL, *y = NULL, *bestx = NULL, *besty = NULL;
     double *kmat = NULL, *rhs = NULL;
     long long patterns = 1, code, best_found = 0;
-    double best_obj = INFINITY;
+    int timed_out = 0;
+    double best_obj = INFINITY, started = sk_wall_seconds();
     int i, j, p;
 
     if (!m->Q || total_dim > 12) return 0;
@@ -209,6 +210,8 @@ static int qp_active_enumerate(const sk_model *m, const sk_options *o,
         (!vmap && n) || !x || !y || !bestx || !besty || !kmat || !rhs) goto done;
 
     for (code = 0; code < patterns; ++code) {
+        if ((code & 255LL) == 0 && o->time_limit > 0.0 &&
+            sk_wall_seconds() - started >= o->time_limit) { timed_out = 1; break; }
         long long digit = code;
         int nf = 0, na = 0, dim;
         sk_solution candidate;
@@ -285,6 +288,7 @@ next_pattern:
         memset(x, 0, (size_t)n * sizeof(double));
         memset(y, 0, (size_t)r * sizeof(double));
     }
+    if (timed_out) best_found = 0;
     if (best_found) {
         sk_solution_init(s);
         s->x = (double *)calloc((size_t)n + 1, sizeof(double));
@@ -315,8 +319,14 @@ static int qp_psd_check(const sk_model *m)
         if (!isfinite(m->Q->x[p])) { free(h); free(l); return 0; }
         h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
     }
-    /* Work with the symmetric part; the public Q contract is symmetric, but
-       averaging also makes the guard conservative for hand-built models. */
+    /* The public Q contract is symmetric.  Reject malformed hand-built
+       matrices instead of certifying the symmetric part of a different
+       quadratic form. */
+    for (i = 0; i < n; ++i) for (j = i + 1; j < n; ++j)
+        if (fabs(h[(size_t)i * n + j] - h[(size_t)j * n + i]) >
+            1e-10 * (1.0 + fmax(fabs(h[(size_t)i * n + j]), fabs(h[(size_t)j * n + i])))) {
+            free(h); free(l); return 0;
+        }
     for (i = 0; i < n; ++i) for (j = i; j < n; ++j) {
         double v = 0.5 * (h[(size_t)i * n + j] + h[(size_t)j * n + i]);
         h[(size_t)i * n + j] = h[(size_t)j * n + i] = v;

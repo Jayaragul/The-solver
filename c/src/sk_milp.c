@@ -151,6 +151,11 @@ static int miqp_q_psd(const sk_model *m)
         }
         h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
     }
+    for (i = 0; i < n; ++i) for (j = i + 1; j < n; ++j)
+        if (fabs(h[(size_t)i * n + j] - h[(size_t)j * n + i]) >
+            1e-10 * (1.0 + fmax(fabs(h[(size_t)i * n + j]), fabs(h[(size_t)j * n + i])))) {
+            free(h); free(l); return 0;
+        }
     for (i = 0; i < n; ++i) for (j = i; j < n; ++j) {
         double v = 0.5 * (h[(size_t)i * n + j] + h[(size_t)j * n + i]);
         h[(size_t)i * n + j] = h[(size_t)j * n + i] = v;
