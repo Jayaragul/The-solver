@@ -63,12 +63,14 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | HiGHS comparison on AFIRO | isolated HiGHS 1.15.1 baseline recorded | passed |
 | CUDA diagonal-QP smoke test | known solution `x=2`, objective `-4` | passed |
 | Native sparse-QP smoke test | QPS parse → constrained QP solve → independent quadratic objective check | passed |
+| Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 17/17 C and CUDA smoke tests passed | passed |
-| MIPLIB results | no dataset/run recorded yet | not claimed |
-| QPLIB results | no dataset/run recorded yet | not claimed |
+| Full CMake test suite | 18/18 C and CUDA smoke tests passed | passed |
+| MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
+| Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
+| QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
 
 The repository contains no benchmark score that has not actually been measured.
 
@@ -112,6 +114,12 @@ certificate. For certified MILP runs, use the native exact-simplex driver:
 build\native\sk_mip.exe bench\smoke\knapsack.mps --expect -20
 ```
 
+For a native QPS run with independent KKT diagnostics, use:
+
+```text
+build\native\sk_qp.exe bench\smoke\tiny_qp.qps --expect -4
+```
+
 It emits the incumbent, best bound, gap, integrality residual, node count, and
 LP-relaxation statistics. A `gap_limit`, node limit, or time limit is never
 presented as a proof of optimality.
@@ -149,6 +157,10 @@ the fixed five-second protocol, while retaining the remaining three limits.
 The first native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
 It proves 3/5 small official MIPLIB instances within a fixed 20-second limit and
 retains the two time-limited cases with their valid dual bounds.
+
+The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
+It records one proven optimum and retains nine QP limits; QPLIB remains an
+explicitly unclaimed future benchmark.
 
 ## Benchmark contract
 
