@@ -117,6 +117,9 @@ typedef struct milp {
     const sk_model *m;
     sk_model work;            /* shares A/c/rows with m, owns clow/cupp */
     unsigned char *relax_vartype; /* continuous view for convex-QP nodes */
+    sk_csc cutA;              /* optional root-generated cover-cut matrix */
+    double *cut_rlow, *cut_rupp;
+    int *cut_start, *cut_vars, ncuts;
     double *clow0, *cupp0;    /* root bounds after integer rounding */
     double *nlow, *nupp;      /* bounds of the node being solved */
 
@@ -135,6 +138,96 @@ typedef struct milp {
 } milp;
 
 static int is_int_var(const sk_model *m, int j) { return m->vartype[j] == SK_INTEGER; }
+
+typedef struct cover_item { int var; double coeff; } cover_item;
+
+static int cover_descending(const void *a, const void *b)
+{
+    const cover_item *x = (const cover_item *)a, *y = (const cover_item *)b;
+    return x->coeff < y->coeff ? 1 : (x->coeff > y->coeff ? -1 : 0);
+}
+
+/* Generate safe 0-1 cover inequalities from positive upper-bound rows.  A
+ * cover C with sum(a_j,j in C) > b implies sum(x_j,j in C) <= |C|-1 for every
+ * binary feasible point.  We require every nonzero in the source row to be a
+ * binary variable with a positive coefficient, so no sign assumptions are
+ * hidden in the cut's validity. */
+static sk_status milp_build_cover_cuts(milp *M)
+{
+    const sk_model *m = M->m;
+    int i, j, p, cap_vars = 256, nc = 0, cut_nnz = 0;
+    int *col_count = NULL, *next = NULL;
+    cover_item *items = NULL;
+    if (m->Q || !M->lp_opt.mip_cuts || m->nrow == 0) return SK_OK;
+    M->cut_start = (int *)calloc(65, sizeof(int));
+    M->cut_vars = (int *)malloc((size_t)cap_vars * sizeof(int));
+    if (!M->cut_start || !M->cut_vars) return SK_ERR_MEMORY;
+
+    for (i = 0; i < m->nrow && nc < 64; ++i) {
+        int nitem = 0, valid = 1, take = 0;
+        double sum = 0.0;
+        if (SK_IS_INF(m->rupp[i])) { M->cut_start[nc + 1] = cut_nnz; continue; }
+        for (j = 0; j < m->ncol; ++j)
+            for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
+                if (m->A.i[p] == i) ++nitem;
+        if (nitem == 0) { M->cut_start[nc + 1] = cut_nnz; continue; }
+        items = (cover_item *)realloc(items, (size_t)nitem * sizeof(cover_item));
+        if (!items) { free(col_count); free(next); return SK_ERR_MEMORY; }
+        for (j = 0; j < m->ncol; ++j) for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
+            if (m->A.i[p] == i) {
+                if (!is_int_var(m, j) || fabs(m->clow[j]) > 1e-9 || fabs(m->cupp[j] - 1.0) > 1e-9 || m->A.x[p] <= 0.0) valid = 0;
+                items[take].var = j; items[take].coeff = m->A.x[p]; ++take;
+            }
+        if (!valid) { M->cut_start[nc + 1] = cut_nnz; continue; }
+        qsort(items, (size_t)take, sizeof(*items), cover_descending);
+        for (j = 0; j < take && sum <= m->rupp[i] + 1e-9; ++j) sum += items[j].coeff;
+        if (sum <= m->rupp[i] + 1e-9 || j == 0) { M->cut_start[nc + 1] = cut_nnz; continue; }
+        if (cut_nnz + j > cap_vars) {
+            while (cap_vars < cut_nnz + j) cap_vars *= 2;
+            M->cut_vars = (int *)realloc(M->cut_vars, (size_t)cap_vars * sizeof(int));
+            if (!M->cut_vars) { free(items); free(col_count); free(next); return SK_ERR_MEMORY; }
+        }
+        for (p = 0; p < j; ++p) M->cut_vars[cut_nnz++] = items[p].var;
+        M->cut_start[++nc] = cut_nnz;
+    }
+    free(items);
+    M->ncuts = nc;
+    if (!nc) return SK_OK;
+
+    col_count = (int *)calloc((size_t)m->ncol, sizeof(int));
+    next = (int *)malloc((size_t)m->ncol * sizeof(int));
+    M->cut_rlow = (double *)malloc((size_t)(m->nrow + nc) * sizeof(double));
+    M->cut_rupp = (double *)malloc((size_t)(m->nrow + nc) * sizeof(double));
+    if ((!col_count && m->ncol) || (!next && m->ncol) || !M->cut_rlow || !M->cut_rupp) {
+        free(col_count); free(next); return SK_ERR_MEMORY;
+    }
+    for (i = 0; i < m->nrow; ++i) { M->cut_rlow[i] = m->rlow[i]; M->cut_rupp[i] = m->rupp[i]; }
+    for (i = 0; i < nc; ++i) {
+        M->cut_rlow[m->nrow + i] = -SK_INFINITY;
+        M->cut_rupp[m->nrow + i] = (double)(M->cut_start[i + 1] - M->cut_start[i] - 1);
+        for (p = M->cut_start[i]; p < M->cut_start[i + 1]; ++p) ++col_count[M->cut_vars[p]];
+    }
+    M->cutA.nrow = m->nrow + nc; M->cutA.ncol = m->ncol;
+    M->cutA.nzmax = m->A.p[m->ncol] + cut_nnz;
+    M->cutA.p = (int *)calloc((size_t)m->ncol + 1, sizeof(int));
+    M->cutA.i = (int *)malloc((size_t)(M->cutA.nzmax > 0 ? M->cutA.nzmax : 1) * sizeof(int));
+    M->cutA.x = (double *)malloc((size_t)(M->cutA.nzmax > 0 ? M->cutA.nzmax : 1) * sizeof(double));
+    if (!M->cutA.p || !M->cutA.i || !M->cutA.x) { free(col_count); free(next); return SK_ERR_MEMORY; }
+    for (j = 0; j < m->ncol; ++j) M->cutA.p[j + 1] = M->cutA.p[j] + (m->A.p[j + 1] - m->A.p[j]) + col_count[j];
+    memcpy(next, M->cutA.p, (size_t)m->ncol * sizeof(int));
+    for (j = 0; j < m->ncol; ++j) for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) {
+        int q = next[j]++; M->cutA.i[q] = m->A.i[p]; M->cutA.x[q] = m->A.x[p];
+    }
+    for (i = 0; i < nc; ++i) for (p = M->cut_start[i]; p < M->cut_start[i + 1]; ++p) {
+        j = M->cut_vars[p];
+        { int q = next[j]++; M->cutA.i[q] = m->nrow + i; M->cutA.x[q] = 1.0; }
+    }
+    free(col_count); free(next);
+    M->work.A = M->cutA; M->work.nrow = m->nrow + nc;
+    M->work.rlow = M->cut_rlow; M->work.rupp = M->cut_rupp;
+    M->st.cuts_added = nc;
+    return SK_OK;
+}
 
 /* The first MIQP relaxation path is intentionally bounded.  A small sparse Q
  * is admitted when a dense PSD guard succeeds and the total number of
@@ -539,6 +632,8 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
     if (!M.clow0 || !M.cupp0 || !M.nlow || !M.nupp || !M.pc_down || !M.pc_up ||
         !M.nc_down || !M.nc_up || !M.incumbent || !M.relax_vartype) { rc = SK_ERR_MEMORY; goto cleanup; }
 
+    if (milp_build_cover_cuts(&M) != SK_OK) { rc = SK_ERR_MEMORY; goto cleanup; }
+
     for (j = 0; j < m->ncol; j++) {
         double lo = m->clow[j], up = m->cupp[j];
         if (is_int_var(m, j)) {
@@ -701,6 +796,8 @@ cleanup:
     free(M.pc_down); free(M.pc_up); free(M.nc_down); free(M.nc_up);
     free(M.incumbent);
     free(M.relax_vartype);
+    free(M.cutA.p); free(M.cutA.i); free(M.cutA.x);
+    free(M.cut_rlow); free(M.cut_rupp); free(M.cut_start); free(M.cut_vars);
     sk_solution_free(&M.ls);
     return rc;
 }

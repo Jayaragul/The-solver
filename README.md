@@ -49,8 +49,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   A guarded MIQP slice is also available for small positive-semidefinite
   sparse Q with at most twelve total variables/rows; its node relaxations are
   solved by exhaustive active-set KKT certification (with the closed form
-  retained for separable bounds-only nodes). Larger MIQP, cuts, conflict
-  analysis, and parallel search remain future work.
+  retained for separable bounds-only nodes). Larger MIQP remains future work.
+  Validated binary cover cuts are generated for suitable positive knapsack
+  rows; conflict analysis and parallel search remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
@@ -95,7 +96,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native JSONL benchmark harness | one command dispatches LP/QP/MILP files and reports provenance, status, residuals, bounds, iterations/nodes, and timing; smoke covers all three | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
-| Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
+| Native MILP branch-and-bound/cut smoke | binary row receives a validated cover cut, reaches `(1,0)`, objective `-2`, and closes the proven gap | passed |
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
@@ -222,8 +223,8 @@ build\native\sk_bench.exe --time-limit 5 bench\smoke\unit_lp.mps bench\smoke\tin
    Netlib regression coverage.
 5. Extend the guarded diagonal/equality-QP KKT paths to broader convex sparse-QP
    KKT/interior-point solves.
-6. Extend the guarded diagonal MIQP branch-and-bound slice to certified convex
-   sparse-QP node relaxations, then add validated cuts, conflict analysis, and
-   parallel node search.
+6. Extend the guarded MIQP branch-and-bound slice to larger certified convex
+   sparse-QP node relaxations, then add conflict analysis and parallel node
+   search around the validated cover-cut foundation.
 7. Run frozen Netlib/Mittelmann/QPLIB/MIPLIB comparisons against an isolated
    open-source baseline and publish the complete result set.

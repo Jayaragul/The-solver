@@ -1,12 +1,15 @@
 #include "sankhya.h"
+#include "sk_milp.h"
 
 #include <math.h>
+#include <string.h>
 
 int main(void)
 {
     sk_model model;
     sk_solution solution;
     sk_options options;
+    sk_milp_stats stats;
     sk_model_init(&model);
     if (sk_model_alloc(&model, 1, 2, 2) != SK_OK) return 1;
     model.A.p[0] = 0; model.A.p[1] = 1; model.A.p[2] = 2;
@@ -21,11 +24,12 @@ int main(void)
     model.vartype[0] = model.vartype[1] = SK_INTEGER;
     sk_solution_init(&solution);
     sk_options_default(&options);
+    memset(&stats, 0, sizeof(stats));
     options.iteration_limit = 200000;
     options.node_limit = 32;
-    if (sk_solve(&model, &options, &solution) != SK_OK || solution.result != SK_RESULT_OPTIMAL ||
+    if (sk_milp_solve(&model, &options, &solution, &stats) != SK_OK || solution.result != SK_RESULT_OPTIMAL ||
         !solution.x || fabs(solution.x[0] - 1.0) > 1e-5 || fabs(solution.x[1]) > 1e-5 ||
-        fabs(solution.objective + 2.0) > 1e-5 || solution.nodes < 3 || solution.mip_gap != 0.0) {
+        fabs(solution.objective + 2.0) > 1e-5 || stats.cuts_added < 1 || solution.mip_gap != 0.0) {
         sk_solution_free(&solution);
         sk_model_free(&model);
         return 2;
