@@ -15,8 +15,8 @@ build\cmake-cuda\sk_mip.exe bench\data\miplib\mps\<name>.mps \
 ```
 
 The run uses the native revised-simplex relaxation, row and incumbent-objective
-bound propagation,
-pseudocost branching, best-bound backtracking, and the exact MILP gap test.
+bound propagation, pseudocost branching, rounding and binary-cover repair
+heuristics, best-bound backtracking, and the exact MILP gap test.
 An `optimal` row means the native dual bound closed the gap; a time limit is
 reported as a limit and is not treated as a failure or an optimality claim.
 
@@ -24,11 +24,11 @@ reported as a limit and is not treated as a failure or an optimality claim.
 
 | Instance | Rows | Cols | Integer vars | Status | Objective | Dual bound | Nodes | LP solves | Seconds |
 |---|---:|---:|---:|---|---:|---:|---:|---:|---:|
-| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 687 | 698 | 0.069364 |
-| bell5 | 91 | 104 | 58 | time limit | — | 8608417.94651 | 15871 | 16112 | 20.018210 |
-| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 14074 | 14184 | 3.528628 |
-| flugpl | 18 | 18 | 11 | optimal | 1201500 | 1201500 | 374 | 381 | 0.031429 |
-| set1ch | 492 | 712 | 240 | time limit | — | 35118.1098485 | 631 | 643 | 20.000373 |
+| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 687 | 698 | 0.060242 |
+| bell5 | 91 | 104 | 58 | time limit | — | 8608417.94651 | 10233 | 10391 | 20.015157 |
+| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 13506 | 13624 | 2.742792 |
+| flugpl | 18 | 18 | 11 | optimal | 1201500 | 1201500 | 374 | 382 | 0.030976 |
+| set1ch | 492 | 712 | 240 | time limit | — | 35118.1098485 | 377 | 386 | 20.000745 |
 
 Summary: 3/5 instances were proven optimal within the fixed limit; the other
 two retained valid root dual bounds but no incumbent was found. These results

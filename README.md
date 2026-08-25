@@ -39,7 +39,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
   pseudocost branching, incumbent-driven objective bound propagation, rounding
-  heuristics, and best-bound backtracking.
+  rounding and binary-cover repair heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
   Cuts, conflict analysis, parallel search, and MIQP remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
