@@ -177,8 +177,10 @@ static int qp_psd_check(const sk_model *m)
     double *h = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
     double *l = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
     if ((!h && n) || (!l && n)) { free(h); free(l); return 0; }
-    for (j = 0; j < n; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+    for (j = 0; j < n; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p) {
+        if (!isfinite(m->Q->x[p])) { free(h); free(l); return 0; }
         h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
+    }
     /* Work with the symmetric part; the public Q contract is symmetric, but
        averaging also makes the guard conservative for hand-built models. */
     for (i = 0; i < n; ++i) for (j = i; j < n; ++j) {
