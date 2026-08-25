@@ -139,6 +139,10 @@ models with objective, residual, status, iteration, and timing fields for both
 solvers. It records 46 agreeing optima; `cycle`, `d6cube`, `dfl001`, and
 `modszk1` are explicitly retained as current simplex limits/stalls.
 
+The focused anti-degeneracy follow-up is [NETLIB_DEGENERACY](bench/results/NETLIB_DEGENERACY.md).
+It records `cycle` reaching the independently measured HiGHS optimum within
+the fixed five-second protocol, while retaining the remaining three limits.
+
 The first native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
 It proves 3/5 small official MIPLIB instances within a fixed 20-second limit and
 retains the two time-limited cases with their valid dual bounds.

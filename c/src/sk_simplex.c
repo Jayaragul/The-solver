@@ -249,8 +249,10 @@ static void spx_price(spx *S, int phase1)
 }
 
 /* Choose the entering variable. Returns -1 when the phase is optimal.
- * `bland` switches to the lowest-index rule, which cannot cycle. */
-static int spx_choose_entering(spx *S, int bland, int *dir_out)
+ * pricing_mode 0 is Devex, 1 is Bland, and 2 is Dantzig.  Dantzig is a
+ * useful intermediate anti-degeneracy policy: it restores raw reduced-cost
+ * progress before resorting to Bland's finite, but often very slow, rule. */
+static int spx_choose_entering(spx *S, int pricing_mode, int *dir_out)
 {
     int j, best = -1, bestdir = 0;
     double bestval = 0.0;
@@ -263,7 +265,12 @@ static int spx_choose_entering(spx *S, int bland, int *dir_out)
         if (t == SK_AT_LOWER)      { if (dj >= -S->dual_tol) continue; dir =  1; }
         else if (t == SK_AT_UPPER) { if (dj <=  S->dual_tol) continue; dir = -1; }
         else                       { if (fabs(dj) <= S->dual_tol) continue; dir = (dj < 0.0) ? 1 : -1; }
-        if (bland) return (*dir_out = dir), j;
+        if (pricing_mode == 1) return (*dir_out = dir), j;
+        if (pricing_mode == 2) {
+            double score = fabs(dj);
+            if (score > bestval) { bestval = score; best = j; bestdir = dir; }
+            continue;
+        }
         /* Devex: score d_j^2 / w_j rather than |d_j|.  Dantzig's rule measures
          * the objective gain per unit *step in x_j*, which says nothing about
          * how far the ratio test will actually let x_j move.  On degenerate
@@ -515,7 +522,7 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
             /* Refresh the Devex weights while the old factorization and the
                old basis are both still in place - the update needs the pivot
                row of the basis we are about to leave. */
-            if (!bland) spx_devex_update(&S, enter, leave, S.alpha[leave]);
+            if (bland != 1) spx_devex_update(&S, enter, leave, S.alpha[leave]);
 
             /* Capture the phase-1 effective bound before xB is updated.
                After the update the basic value becomes feasible and the
@@ -563,7 +570,8 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
             } else {
                 if (step <= 1e-12) stall++; else stall = 0;
             }
-            if (stall > 200 && !bland) bland = 1;
+            if (stall > 1000 && bland == 2) bland = 1;
+            else if (stall > 200 && bland == 0) bland = 2;
             else if (stall == 0 && bland) bland = 0;
         }
     }
