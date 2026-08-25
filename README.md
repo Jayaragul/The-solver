@@ -245,15 +245,21 @@ build\native\sk_bench.exe --time-limit 5 bench\smoke\unit_lp.mps bench\smoke\tin
 
 ## Roadmap
 
-1. Make the native C model and LU smoke tests build and pass.
-2. Validate CUDA SpMV/transpose-SpMV and the PDHG LP prototype.
-3. Extend the native MPS reader with QPS support, sparse Hessian storage, and independent certificate checking.
-4. Extend the revised-simplex LP path with full presolve/postsolve and broader
-   Netlib regression coverage.
-5. Extend the guarded diagonal/equality-QP KKT paths to broader convex sparse-QP
-   KKT/interior-point solves.
-6. Extend the guarded MIQP branch-and-bound slice to larger certified convex
-   sparse-QP node relaxations, then add conflict analysis and parallel node
-   search around the validated cover-cut foundation.
-7. Run frozen Netlib/Mittelmann/QPLIB/MIPLIB comparisons against an isolated
-   open-source baseline and publish the complete result set.
+Completed foundation:
+
+1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
+   simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
+   SpMV/PDHG/QP paths are implemented and covered by the 33-test suite.
+2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
+   records are published with independent residual checks and retained limits.
+
+Next research milestones:
+
+1. Extend revised-simplex presolve/postsolve beyond singleton tightening and
+   reduce the retained Netlib limits without weakening certificates.
+2. Extend the guarded QP KKT paths to a sparse convex interior-point or
+   active-set solver that scales beyond the current small exact regime.
+3. Extend MIQP node relaxations beyond the current small certified slice, then
+   add conflict analysis and parallel node search around validated cover cuts.
+4. Add frozen Mittelmann/QPLIB runs and broaden the benchmark comparison while
+   preserving dataset hashes, machine provenance, and honest time-limit status.
