@@ -393,12 +393,14 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     /* QP uses the independently recomputed KKT residual. LP PDHG uses a
        different multiplier sign convention from the legacy LP verifier, so
        its certificate is intentionally deferred to the simplex path. */
-    if (m->Q) {
+    if (!isfinite(s->objective) || !isfinite(s->primal_infeasibility)) {
+        s->result = SK_RESULT_NUMERIC_FAILURE;
+    } else if (m->Q) {
         if (sk_verify(m, s) == SK_OK && s->primal_infeasibility <= 100.0 * o->primal_tol &&
             s->dual_infeasibility <= 100.0 * o->dual_tol && s->complementarity <= 100.0 * o->dual_tol)
             converged = 1;
     }
-    if (converged && (!m->Q || (s->primal_infeasibility <= 100.0 * o->primal_tol &&
+    if (s->result != SK_RESULT_NUMERIC_FAILURE && converged && (!m->Q || (s->primal_infeasibility <= 100.0 * o->primal_tol &&
         s->dual_infeasibility <= 100.0 * o->dual_tol && s->complementarity <= 100.0 * o->dual_tol))) {
         s->result = SK_RESULT_OPTIMAL;
     } else {
