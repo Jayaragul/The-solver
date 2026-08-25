@@ -18,7 +18,7 @@ enum class MilpStatus {
     NUMERICAL_FAILURE
 };
 
-enum class MilpBranchingRule { MOST_FRACTIONAL };
+enum class MilpBranchingRule { MOST_FRACTIONAL, PSEUDOCOST, RELIABILITY };
 
 struct MilpSolverOptions {
     // MILP bounds must be certified LP optima. The solver therefore forces
@@ -33,7 +33,12 @@ struct MilpSolverOptions {
     double feasibility_tolerance = 1e-6;
     double objective_tolerance = 1e-8;
     bool use_rounding_heuristic = true;
-    MilpBranchingRule branching_rule = MilpBranchingRule::MOST_FRACTIONAL;
+    MilpBranchingRule branching_rule = MilpBranchingRule::RELIABILITY;
+    std::uint32_t reliability_threshold = 2;
+    std::uint32_t strong_branching_candidates = 4;
+    bool enable_root_cover_cuts = true;
+    std::uint32_t max_root_cover_cuts = 64;
+    double cut_violation_tolerance = 1e-7;
 };
 
 struct MilpSolution {
@@ -47,6 +52,8 @@ struct MilpSolution {
     std::uint64_t nodes_processed = 0;
     std::uint64_t nodes_pruned = 0;
     std::uint64_t lp_relaxations = 0;
+    std::uint64_t strong_branching_probes = 0;
+    std::uint64_t root_cover_cuts = 0;
     std::uint64_t incumbent_updates = 0;
 };
 

@@ -59,17 +59,20 @@ int main() {
     const MilpProblem fractional_root = make_knapsack({6, 5}, {10, 9}, 7);
     MilpSolverOptions fractional_options;
     fractional_options.use_rounding_heuristic = false;
+    fractional_options.enable_root_cover_cuts = false;
     const auto fractional_start = std::chrono::steady_clock::now();
     const MilpSolution fractional_result = solve_milp(fractional_root, fractional_options);
     const double fractional_seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - fractional_start).count();
     const bool fractional_pass = fractional_result.status == MilpStatus::OPTIMAL &&
                                  std::fabs(fractional_result.objective_value + 10.0) <= 1e-8;
-    std::printf("fractional_root status=%s objective=%.12g expected=-10 nodes=%llu time=%.6fs "
-                "oracle_check=%s\n",
+    std::printf("fractional_root status=%s objective=%.12g expected=-10 nodes=%llu probes=%llu "
+                "cuts=%llu time=%.6fs oracle_check=%s\n",
                 fractional_result.status == MilpStatus::OPTIMAL ? "OPTIMAL" : "NOT_OPTIMAL",
                 fractional_result.objective_value,
                 static_cast<unsigned long long>(fractional_result.nodes_processed),
+                static_cast<unsigned long long>(fractional_result.strong_branching_probes),
+                static_cast<unsigned long long>(fractional_result.root_cover_cuts),
                 fractional_seconds, fractional_pass ? "PASS" : "FAIL");
 
     const std::vector<int> weights = {7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47,
@@ -98,9 +101,12 @@ int main() {
     std::printf("status=%s objective=%.12g expected=%.12g abs_error=%.3e\n",
                 result.status == MilpStatus::OPTIMAL ? "OPTIMAL" : "NOT_OPTIMAL",
                 result.objective_value, expected, error);
-    std::printf("nodes=%llu lp_relaxations=%llu pruned=%llu incumbents=%llu time=%.6fs\n",
+    std::printf("nodes=%llu lp_relaxations=%llu probes=%llu cuts=%llu pruned=%llu "
+                "incumbents=%llu time=%.6fs\n",
                 static_cast<unsigned long long>(result.nodes_processed),
                 static_cast<unsigned long long>(result.lp_relaxations),
+                static_cast<unsigned long long>(result.strong_branching_probes),
+                static_cast<unsigned long long>(result.root_cover_cuts),
                 static_cast<unsigned long long>(result.nodes_pruned),
                 static_cast<unsigned long long>(result.incumbent_updates), seconds);
     std::printf("oracle_check=%s\n", pass ? "PASS" : "FAIL");

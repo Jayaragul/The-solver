@@ -62,6 +62,7 @@ MilpProblem impossible_integer_equality() {
 SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
     MilpSolverOptions options;
     options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
@@ -71,6 +72,7 @@ SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
     SIHPS_ASSERT_NEAR(result.x[1], 0.0, 0.0);
     SIHPS_ASSERT_TRUE(result.nodes_processed >= 3);
     SIHPS_ASSERT_TRUE(result.nodes_pruned >= 1);
+    SIHPS_ASSERT_TRUE(result.strong_branching_probes >= 2);
     SIHPS_ASSERT_NEAR(result.relative_gap, 0.0, 0.0);
 }
 
@@ -105,10 +107,21 @@ SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     MilpSolverOptions options;
     options.node_limit = 1;
     options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::NODE_LIMIT);
     SIHPS_ASSERT_TRUE(result.status != MilpStatus::OPTIMAL);
+}
+
+SIHPS_TEST(milp_root_cover_cut_is_valid_and_improves_the_root_relaxation) {
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    const auto result = sihps::solve_milp(binary_knapsack(), options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.root_cover_cuts >= 1);
+    SIHPS_ASSERT_NEAR(result.objective_value, -10.0, 1e-8);
 }
 
 SIHPS_TEST(milp_maps_unbounded_pure_continuous_relaxation_to_unbounded) {

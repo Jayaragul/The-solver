@@ -24,25 +24,24 @@ struct BnBNode {
 
 ### 1.2 Node queue and selection
 
-**v1 policy: best-bound selection with limited plunging (dive-then-backtrack on the current best-bound branch).** This is an explicit, simpler alternative to SCIP's full pseudocost-estimate node ranking (SOTA.md §1.1) — **IMPLEMENTATION DECISION**, justified by two Phase 1 findings: (a) pseudocost-based estimates are themselves built on potentially unreliable signal on degenerate refinery LPs (SOTA.md §1.1's hypothesis about pseudocost reliability under degeneracy), so a simpler ranking avoids inheriting that unvalidated assumption into the core search order; (b) best-bound is the simplest policy with a direct, provable relationship to the reported optimality gap. Upgrading to estimate-based ranking is a candidate future milestone, contingent on v1 benchmarking showing best-bound's tree sizes are a practical bottleneck.
+**Implemented policy: best-bound selection.** Each queued node carries a
+valid inherited lower bound before its own relaxation is solved, and ties are
+resolved deterministically by depth and creation order. The inherited bound
+is conservative for gap reporting; it never permits an unsafe prune.
 
 ### 1.3 Branching
 
-**Implemented v1 policy: most-fractional branching.** At each fractional LP
-solution, the integer variable with the largest `min(fractional_part,
-1-fractional_part)` score is selected, with the original column index as the
-deterministic tie-break. This is deliberately a simple, auditable baseline;
-it is not mislabeled as reliability branching.
+**Implemented policy: reliability branching.** The solver starts with the
+most-fractional candidates, performs a bounded number of strong-branching LP
+probes for unreliable variables, and records objective degradation per unit
+branch distance as separate up/down pseudocosts. Once both directions reach
+the configured reliability threshold, pseudocost scores rank candidates. The
+column index is the deterministic final tie-break. `MOST_FRACTIONAL` and
+`PSEUDOCOST` remain available for controlled comparisons.
 
-Reliability branching remains the next branching milestone. Strong branching
-and pseudocost updates must be added together with their own accounting and
-regression benchmark before the policy is changed, because an unmeasured
-candidate-evaluation budget can make the tree smaller while making total solve
-time worse.
-
-- Strong branching evaluates a small set of fractional candidates by actually solving (a bounded number of iterations of) both child LPs before committing — expensive per node, cheap in node count.
-- Pseudocost branching uses historical objective-degradation-per-unit-fractionality statistics, cheap per node, unreliable until enough history accumulates.
-- Reliability branching runs strong branching only until a variable's pseudocost history is deemed reliable (a small fixed count of prior observations), then switches to pseudocost — the standard middle ground.
+Strong-branching probes are counted separately from processed B&B nodes and
+are never used as proofs: an unsuccessful probe is ignored for ranking, while
+the actual child relaxation still determines pruning and termination.
 
 **Symmetry interaction (see §3):** on instances with interchangeable units/periods, multiple branching candidates may be structurally equivalent; v1 does not attempt symmetry-aware branching-candidate deduplication (a PROPOSED MODIFICATION noted in SOTA.md §1.1 but not validated) — this is deferred pending evidence from §3's simpler static symmetry-breaking that dynamic candidate deduplication is even needed.
 
@@ -54,16 +53,27 @@ re-solve. The sparse matrix is copied once for the solve and then reused;
 node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
-## 2. Cuts (v1 scope: architectural stub)
+## 2. Cuts (implemented root cover subset)
 
-Per SOTA.md §5 (KS-5), MIR and flow-cover cuts targeting the big-M fixed-charge structure typical of refinery scheduling formulations are the highest-*hypothesized*-leverage cut family for this workload — but this is an explicit RESEARCH HYPOTHESIS, not yet validated on any instance. Per prompt.md's development rule ("do not move to the next subsystem until the current one is internally consistent"), **v1 ships branch-and-bound without active cut generation** — the `CutManager` module (`SYSTEM.md` §2.9) exists as an architectural seam (a defined interface a future milestone plugs into) but performs no separation in the first working milestone. Adding MIR/flow-cover separation is the first planned extension *after* the uncut B&B core passes Level 6 benchmarking — this ordering is itself a test of whether cuts are worth their separation overhead on this specific workload, not an assumption that they will be.
+The first cut implementation is deliberately narrow and auditable: root-only
+cover inequalities for rows that are pure positive-coefficient binary
+knapsacks. For a cover $C$ with $\sum_{j\in C} a_j > b$, it adds the valid
+inequality $\sum_{j\in C} x_j \le |C|-1$. Mixed rows, negative coefficients,
+continuous variables, and non-unit binary bounds are rejected by the
+separator rather than approximated. Cuts are globally valid and remain active
+in descendants; they are generated once at the root and counted separately.
+
+MIR and flow-cover separation for general mixed rows remains a future
+extension. It requires a full row-bound transformation and independent
+validity tests before it can be enabled, so the current implementation does
+not claim that broader cut family.
 
 ```cpp
 class CutManager {
 public:
-    // v1: returns empty — no cuts generated. Interface exists for the
-    // planned MIR/flow-cover milestone (SOTA.md KS-5), not implemented yet.
-    std::vector<Cut> separate(const LPResult& fractional_solution) { return {}; }
+    // Current implementation: root-only pure-binary cover separation.
+    // General MIR/flow-cover separation is intentionally not implied here.
+    std::vector<Cut> separate(const LPResult& fractional_solution);
 };
 ```
 
