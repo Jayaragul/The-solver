@@ -28,3 +28,9 @@ target_link_libraries(sankhya_pdhg PRIVATE sankhya_core sankhya_cuda)
 target_include_directories(sankhya_pdhg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../c/include)
+
+add_executable(sankhya_qp_cuda ../apps/sankhya_qp_cuda.cu)
+target_link_libraries(sankhya_qp_cuda PRIVATE sankhya_core sankhya_cuda)
+target_include_directories(sankhya_qp_cuda PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../c/include)
