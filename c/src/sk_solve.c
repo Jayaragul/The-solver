@@ -175,8 +175,8 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             if (m->Q) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
                 col_mass[j] += fabs(m->Q->x[p]);
         }
-        for (j = 0; j < n; ++j) tau_vec[j] = 0.5 / (1.0 + col_mass[j]);
-        for (j = 0; j < r; ++j) sigma_vec[j] = 0.5 / (1.0 + row_mass[j]);
+        for (j = 0; j < n; ++j) tau_vec[j] = 0.9 / (1.0 + col_mass[j]);
+        for (j = 0; j < r; ++j) sigma_vec[j] = 0.9 / (1.0 + row_mass[j]);
         free(row_mass); free(col_mass);
     }
     start = sk_wall_seconds();

@@ -18,16 +18,16 @@ build\cmake-cuda\sk_qp.exe <instance>.QPS \
 
 | Instance | Rows | Cols | A nnz | Q nnz | Status | Objective at stop | Primal inf | Iterations | Seconds |
 |---|---:|---:|---:|---:|---|---:|---:|---:|---:|
-| HS35MOD | 1 | 3 | 3 | 7 | optimal | 0.250000000001 | 0.000e+00 | 240 | 0.000045 |
-| QPCBLEND | 74 | 83 | 491 | 83 | iteration limit | -0.00819459391024 | 6.415e-05 | 300001 | 1.287026 |
-| QPCBOEI1 | 351 | 384 | 3485 | 384 | time limit | 11280178.8777 | 2.285e+00 | 153994 | 5.000206 |
-| QPCBOEI2 | 166 | 143 | 1196 | 143 | iteration limit | 7259986.92418 | 3.853e+01 | 300001 | 2.807193 |
-| QSCAGR7 | 129 | 140 | 420 | 42 | iteration limit | 26866050.4482 | 2.784e-03 | 300001 | 1.557780 |
-| QSCFXM1 | 330 | 457 | 2589 | 1410 | time limit | 14748016.1427 | 3.336e+00 | 150722 | 5.000202 |
-| QSCSD1 | 77 | 760 | 2388 | 1436 | time limit | 8.66675600998 | 1.110e-05 | 139522 | 5.000158 |
-| QSHIP04S | 402 | 1458 | 4352 | 98 | time limit | 1688444.93546 | 4.267e+00 | 86286 | 5.000344 |
-| QSTANDAT | 359 | 1075 | 3031 | 1470 | time limit | 6411.84098591 | 5.113e-04 | 107285 | 5.000294 |
-| DPKLO1 | 77 | 133 | 1575 | 77 | iteration limit | 0.370096215357 | 8.059e-08 | 600 | 0.006561 |
+| HS35MOD | 1 | 3 | 3 | 7 | optimal | 0.250000000000 | 0.000e+00 | 140 | 0.000035 |
+| QPCBLEND | 74 | 83 | 491 | 83 | iteration limit | -0.00804972479292 | 6.460e-05 | 300001 | 1.218975 |
+| QPCBOEI1 | 351 | 384 | 3485 | 384 | time limit | 11291429.1758 | 1.957e+00 | 145712 | 5.000152 |
+| QPCBOEI2 | 166 | 143 | 1196 | 143 | iteration limit | 7272905.86727 | 3.580e+01 | 300001 | 2.613583 |
+| QSCAGR7 | 129 | 140 | 420 | 42 | iteration limit | 26865948.4968 | 6.196e-05 | 300001 | 1.394502 |
+| QSCFXM1 | 330 | 457 | 2589 | 1410 | time limit | 16607544.1827 | 4.101e-01 | 161884 | 5.000190 |
+| QSCSD1 | 77 | 760 | 2388 | 1436 | iteration limit | 8.66666609937 | 7.145e-08 | 63600 | 1.589729 |
+| QSHIP04S | 402 | 1458 | 4352 | 98 | time limit | 1835189.20025 | 3.889e+00 | 89953 | 5.000416 |
+| QSTANDAT | 359 | 1075 | 3031 | 1470 | iteration limit | 6411.83838668 | 4.403e-08 | 80300 | 2.711014 |
+| DPKLO1 | 77 | 133 | 1575 | 77 | iteration limit | 0.370096215191 | 7.404e-08 | 340 | 0.003356 |
 
 Only `HS35MOD` is claimed optimal in this baseline. The remaining rows are
 explicitly retained as limits, motivating the next QP work: an active-set or
