@@ -151,10 +151,9 @@ void sk_options_default(sk_options *o);
 /* ------------------------------------------------------------------ solve */
 
 /* Current native dispatch solves continuous LPs and convex QPs (Q optional)
- * by a primal-dual first-order method. Bounded MILPs use depth-first
- * branch-and-bound over those LP relaxations and return GAP_LIMIT rather than
- * an exact certificate. MIQP and general optimality certificates remain
- * unsupported. */
+ * by a primal-dual first-order method. Bounded MILPs use exact-simplex
+ * branch-and-bound over certified LP relaxations and report an optimal result
+ * only when the requested proven gap is closed. MIQP remains unsupported. */
 sk_status sk_solve(const sk_model *m, const sk_options *o, sk_solution *s);
 
 /* Independently recomputes primal/dual residuals for a claimed solution.
