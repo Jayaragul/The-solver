@@ -139,6 +139,10 @@ models with objective, residual, status, iteration, and timing fields for both
 solvers. It records 46 agreeing optima; `cycle`, `d6cube`, `dfl001`, and
 `modszk1` are explicitly retained as current simplex limits/stalls.
 
+The first native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
+It proves 3/5 small official MIPLIB instances within a fixed 20-second limit and
+retains the two time-limited cases with their valid dual bounds.
+
 ## Benchmark contract
 
 The benchmark protocol is defined in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).

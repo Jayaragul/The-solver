@@ -8,7 +8,10 @@
 set -u
 
 DATA="${1:-$HOME/sk/data/miplib}"
-BASE="https://miplib.zib.de/WebData/instances"
+# The classic MIPLIB instances used by this frozen, tractable subset are
+# maintained in the official MIPLIB archive.  The newer MIPLIB 2017 site
+# serves bulk ZIP files rather than this per-instance URL layout.
+BASE="https://miplib2010.zib.de/miplib3/miplib3"
 mkdir -p "$DATA/mps"
 cd "$DATA" || exit 1
 
