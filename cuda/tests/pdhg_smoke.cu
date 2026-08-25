@@ -1,0 +1,37 @@
+#include "sankhya_cuda.h"
+
+#include <cmath>
+#include <cstdio>
+#include <limits>
+
+int main() {
+    /* min x, subject to x >= 1 and x >= 0; optimum is x = 1. */
+    const int offsets[] = {0, 1};
+    const int columns[] = {0};
+    const double values[] = {1.0};
+    const double cost[] = {1.0};
+    const double row_lower[] = {1.0};
+    const double row_upper[] = {std::numeric_limits<double>::infinity()};
+    const double col_lower[] = {0.0};
+    const double col_upper[] = {std::numeric_limits<double>::infinity()};
+    SankhyaCudaCSR matrix{};
+    SankhyaCudaLPSettings settings{5000, 10, 0.25, 2.0, 1.0, 1e-5};
+    SankhyaCudaLPResult result{};
+    double solution[] = {0.0};
+    if (sankhya_cuda_csr_create(&matrix, 1, 1, 1, offsets, columns, values) != 0) return 1;
+    const int status = sankhya_cuda_lp_pdhg(
+        &matrix, cost, row_lower, row_upper, col_lower, col_upper,
+        settings, solution, &result);
+    sankhya_cuda_csr_destroy(&matrix);
+    if (status != 0) {
+        std::fprintf(stderr, "PDHG call failed\n");
+        return 2;
+    }
+    if (result.status != 0 || result.maximum_row_violation > 1e-5 ||
+        std::fabs(solution[0] - 1.0) > 1e-3) {
+        std::fprintf(stderr, "PDHG result: status=%d x=%.17g infeas=%.17g\n",
+            result.status, solution[0], result.maximum_row_violation);
+        return 3;
+    }
+    return 0;
+}

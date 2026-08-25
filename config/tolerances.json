@@ -1,0 +1,9 @@
+{
+  "primal_feasibility": 1e-7,
+  "dual_feasibility": 1e-7,
+  "objective_relative": 1e-6,
+  "certificate": 1e-9,
+  "integrality": 1e-6,
+  "linear_solve_residual": 1e-12
+}
+

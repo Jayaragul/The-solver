@@ -1,0 +1,13 @@
+build/
+# Locally downloaded benchmark inputs and third-party baselines are reproducible
+# from the benchmark records; do not vendor release binaries in the source tree.
+bench/data/
+bench/baselines/
+
+# Keep the human-readable, measured benchmark records under version control.
+!bench/results/
+!bench/results/*.md
+
+# MSVC output accidentally produced when compiling ad hoc benchmark utilities.
+*.obj
+*.log

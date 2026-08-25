@@ -1,0 +1,45 @@
+{
+  "captured_utc": "2026-08-24T17:59:43.229056+00:00",
+  "logical_cpu_count": 16,
+  "machine": "AMD64",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+  "tools": {
+    "cl": {
+      "path": null,
+      "version": null
+    },
+    "clang++": {
+      "path": null,
+      "version": null
+    },
+    "cmake": {
+      "path": null,
+      "version": null
+    },
+    "g++": {
+      "path": null,
+      "version": null
+    },
+    "git": {
+      "path": "C:\\Program Files\\Git\\cmd\\git.EXE",
+      "version": "git version 2.54.0.windows.1"
+    },
+    "ninja": {
+      "path": null,
+      "version": null
+    },
+    "nvcc": {
+      "path": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.3\\bin\\nvcc.EXE",
+      "version": "nvcc: NVIDIA (R) Cuda compiler driver"
+    },
+    "nvidia-smi": {
+      "path": "C:\\windows\\system32\\nvidia-smi.EXE",
+      "version": "NVIDIA GeForce RTX 3050 Laptop GPU, 592.82, 4096 MiB"
+    },
+  },
+  "workspace_volume_bytes": {
+    "free": 36070084608,
+    "total": 107383615488
+  }
+}
