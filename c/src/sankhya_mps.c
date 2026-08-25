@@ -138,26 +138,33 @@ SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
     if (file == NULL) return SANKHYA_INVALID_ARGUMENT;
     sankhya_lp_model_init(&candidate);
     while (fgets(line, sizeof(line), file) != NULL) {
-        char* token[8]; size_t token_count = 0; char* current;
+        char* token[8]; size_t token_count = 0; char* current; int is_header;
         if (line[0] == '*' || line[0] == '\n' || line[0] == '\r') continue;
+        /* MPS separates a section header from a data record by column 1:
+           headers begin there, data records are indented.  Without this test a
+           data line whose RHS/RANGES/BOUNDS set is itself named "RHS",
+           "RANGES" or "BOUNDS" - the overwhelmingly common convention, and
+           what most of Netlib uses - is mistaken for a second section header
+           and silently discarded, leaving every right-hand side at zero. */
+        is_header = (line[0] != ' ' && line[0] != '\t');
         current = strtok(line, " \t\r\n");
         while (current != NULL && token_count < 8) { strip_quotes(current); token[token_count++] = current; current = strtok(NULL, " \t\r\n"); }
         if (token_count == 0) continue;
-        if (strcasecmp(token[0], "NAME") == 0) { if (token_count > 1) strncpy(model_name, token[1], sizeof(model_name) - 1); continue; }
-        if (strcasecmp(token[0], "OBJSENSE") == 0) { section = NONE; continue; }
+        if (is_header && strcasecmp(token[0], "NAME") == 0) { if (token_count > 1) strncpy(model_name, token[1], sizeof(model_name) - 1); continue; }
+        if (is_header && strcasecmp(token[0], "OBJSENSE") == 0) { section = NONE; continue; }
         if (strcasecmp(token[0], "MAX") == 0 && section == NONE) { maximize = 1; continue; }
         if (strcasecmp(token[0], "MIN") == 0 && section == NONE) { maximize = 0; continue; }
-        if (strcasecmp(token[0], "ROWS") == 0) { section = ROWS; continue; }
-        if (strcasecmp(token[0], "COLUMNS") == 0) { section = COLUMNS; continue; }
-        if (strcasecmp(token[0], "RHS") == 0) { section = RHS; continue; }
-        if (strcasecmp(token[0], "RANGES") == 0) { section = RANGES; continue; }
-        if (strcasecmp(token[0], "BOUNDS") == 0) { section = BOUNDS; continue; }
+        if (is_header && strcasecmp(token[0], "ROWS") == 0) { section = ROWS; continue; }
+        if (is_header && strcasecmp(token[0], "COLUMNS") == 0) { section = COLUMNS; continue; }
+        if (is_header && strcasecmp(token[0], "RHS") == 0) { section = RHS; continue; }
+        if (is_header && strcasecmp(token[0], "RANGES") == 0) { section = RANGES; continue; }
+        if (is_header && strcasecmp(token[0], "BOUNDS") == 0) { section = BOUNDS; continue; }
         /* The public sk_read_mps bridge performs the second QPS pass.  This
            LP reader must nevertheless leave BOUNDS mode before it encounters
            a quadratic section. */
         if (strcasecmp(token[0], "QUADOBJ") == 0 || strcasecmp(token[0], "QMATRIX") == 0 ||
             strcasecmp(token[0], "QSECTION") == 0) { section = QUADRATIC; continue; }
-        if (strcasecmp(token[0], "ENDATA") == 0) break;
+        if (is_header && strcasecmp(token[0], "ENDATA") == 0) break;
         if (section == ROWS) {
             RowDef* expanded;
             if (token_count < 2 || (token[0][0] != 'N' && token[0][0] != 'L' && token[0][0] != 'G' && token[0][0] != 'E')) goto parse_failure;
@@ -195,7 +202,14 @@ SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
             }
         } else if (section == RHS || section == RANGES) {
             Pair* target = section == RHS ? rhs : ranges; size_t* count = section == RHS ? &rhs_count : &range_count; size_t* capacity = section == RHS ? &rhs_capacity : &range_capacity; size_t pair;
-            for (pair = 1; pair + 1 < token_count; pair += 2) if (!add_pair(&target, count, capacity, token[pair], strtod(token[pair + 1], NULL))) goto parse_failure;
+            /* The leading set name is optional in RHS and RANGES, and the
+               Netlib distribution omits it.  A record is therefore
+               "[set] row value [row value]": an odd token count carries the
+               set name, an even one starts straight at the first row.  Getting
+               this wrong shifts every field by one and silently drops the whole
+               right-hand side, leaving a feasible-looking but wrong model. */
+            size_t first = (token_count % 2 == 1) ? 1 : 0;
+            for (pair = first; pair + 1 < token_count; pair += 2) if (!add_pair(&target, count, capacity, token[pair], strtod(token[pair + 1], NULL))) goto parse_failure;
             if (section == RHS) rhs = target; else ranges = target;
         } else if (section == BOUNDS) {
             BoundDef* expanded; if (token_count < 3) goto parse_failure;

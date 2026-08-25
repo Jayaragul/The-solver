@@ -445,14 +445,14 @@ sk_status sk_verify(const sk_model *m, sk_solution *s)
             }
             if (yv < 0.0) {
                 if (SK_IS_NEG_INF(m->rlow[i])) { if (-yv > dinf) dinf = -yv; }
-                else dobj += yv * m->rlow[i];
+                else dobj -= yv * m->rlow[i];
                 if (!SK_IS_NEG_INF(m->rlow[i])) {
                     double product = -yv * fabs(act[i] - m->rlow[i]);
                     if (product > comp) comp = product;
                 }
             } else if (yv > 0.0) {
                 if (SK_IS_INF(m->rupp[i])) { if (yv > dinf) dinf = yv; }
-                else dobj += yv * m->rupp[i];
+                else dobj -= yv * m->rupp[i];
                 if (!SK_IS_INF(m->rupp[i])) {
                     double product = yv * fabs(m->rupp[i] - act[i]);
                     if (product > comp) comp = product;

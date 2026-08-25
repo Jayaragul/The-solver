@@ -14,6 +14,33 @@ Date: 2026-08-25
 - Baseline package: official HiGHS 1.15.1 x86_64 Windows static release (also
   not bundled; it was executed as an isolated process).
 
+## Native revised-simplex run
+
+```text
+build\cmake-cuda\sk_lp.exe bench\data\netlib\afiro.mps \
+  --time-limit 30 --iter-limit 200000 --expect -464.75314286
+```
+
+| Metric | Value |
+|---|---:|
+| Solver | SANKHYA native C bounded-variable revised simplex |
+| Terminal status | optimal |
+| Objective | `-464.753142857` |
+| Published Netlib optimum | `-464.75314286` |
+| Relative objective error | `6.135e-12` |
+| Independent primal infeasibility | `5.684e-14` |
+| Independent dual infeasibility | `9.992e-16` |
+| Independent LP gap | `1.220e-16` |
+| Iterations | `16` (`6` Phase I) |
+| Basis refactorizations | `2` |
+| Solver-clock time | `0.000254 s` |
+
+This is a certified LP result: all residuals and the gap are recomputed from
+the input model independently of the simplex iteration state. The time is a
+single solver-clock sample on this laptop and is not a general performance
+claim; it excludes MPS reading (`0.001078 s`) and should not be compared
+directly with the isolated HiGHS process-wall timing below.
+
 ## Default automatic-step run
 
 ```text

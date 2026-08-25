@@ -18,6 +18,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Native sparse-LU factorization with threshold pivoting, FTRAN/BTRAN, and
   product-form basis updates; its regression test checks residuals through
   `n=1200` and validates singular-matrix rejection.
+- Native bounded-variable revised simplex for continuous LPs, with a two-phase
+  feasibility procedure, Harris ratio test, periodic basis refactorization,
+  and an independently checked primal-dual certificate.
 - CUDA double-precision CSR SpMV and fused AXPY kernels.
 - Persistent device-resident CSR storage for repeated iterations.
 - CUDA primal-dual hybrid-gradient (PDHG) prototype for bounded continuous LP:
@@ -46,6 +49,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | CUDA sparse-operator smoke test | compiled for `sm_86` and passed on RTX 3050 Laptop GPU | passed |
 | CUDA PDHG LP smoke test | one-variable LP compiled and solved on GPU | passed |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
+| Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Netlib AFIRO | default norm-scaled CUDA PDHG: objective error `5.54e-8`; primal verification at `1e-5` | passed |
 | HiGHS comparison on AFIRO | isolated HiGHS 1.15.1 baseline recorded | passed |
 | CUDA diagonal-QP smoke test | known solution `x=2`, objective `-4` | passed |
@@ -53,7 +57,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary relaxation branches to `(1,1)`, objective `2` | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 12/12 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 14/14 C and CUDA smoke tests passed | passed |
 | MIPLIB results | no dataset/run recorded yet | not claimed |
 | QPLIB results | no dataset/run recorded yet | not claimed |
 
@@ -97,6 +101,17 @@ certificate. A `gap_limit` MILP status is a feasible incumbent from the current
 first-order branch-and-bound baseline, not a commercial-solver-grade optimality
 proof.
 
+For a certified continuous-LP solve using the revised simplex path:
+
+```text
+build\native\sk_lp.exe bench\smoke\unit_lp.mps
+```
+
+It reports the independently recomputed primal infeasibility, dual
+infeasibility, and LP gap. The current simplex implementation is deliberately
+limited to continuous LPs; QP and MILP remain on their separately documented
+paths.
+
 The first external benchmark record is [AFIRO](bench/results/AFIRO.md). Its
 default path uses a deterministic CPU power-iteration estimate of `||A||_2` to
 select the CUDA PDHG primal/dual steps. It remains an approximate solution with
@@ -115,7 +130,8 @@ iterations/nodes, wall time, memory, machine, compiler, and dataset hashes.
 1. Make the native C model and LU smoke tests build and pass.
 2. Validate CUDA SpMV/transpose-SpMV and the PDHG LP prototype.
 3. Extend the native MPS reader with QPS support, sparse Hessian storage, and independent certificate checking.
-4. Add revised simplex and presolve/postsolve for robust LP solving.
+4. Extend the revised-simplex LP path with full presolve/postsolve and broader
+   Netlib regression coverage.
 5. Generalize the diagonal-QP prototype to convex sparse-QP KKT/interior-point solves.
 6. Add MILP branch-and-bound, then validated cuts and parallel node search.
 7. Run frozen Netlib/Mittelmann/QPLIB/MIPLIB comparisons against an isolated
