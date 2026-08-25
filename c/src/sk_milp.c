@@ -547,6 +547,11 @@ finish:
     if (final == SK_RESULT_NOT_RUN) final = SK_RESULT_NUMERIC_FAILURE;
     {
         double bb = M.have_incumbent ? M.incumbent_obj : MILP_INF;
+        /* The active node is still an open relaxation when a time or node
+           limit interrupts the search.  Its parent bound remains valid even
+           though its relaxation may not have been solved, so include it in
+           the reported lower bound alongside the heap. */
+        if (current && current->bound < bb) bb = current->bound;
         for (j = 0; j < open.n; j++) if (open.a[j]->bound < bb) bb = open.a[j]->bound;
         if (!M.have_incumbent && final != SK_RESULT_INFEASIBLE) bb = M.st.root_bound;
         M.st.best_bound = bb;

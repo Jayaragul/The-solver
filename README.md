@@ -46,6 +46,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   accepted only when the independent verifier confirms a strict KKT improvement.
 - Native interval presolve detects contradictory column bounds and row-activity
   intervals in `O(nnz + rows + columns)` before solving or branching.
+- MILP limit reports retain the active node's valid relaxation bound, so a
+  timeout or node limit cannot accidentally overstate the proven dual bound.
 - CMake targets for native C smoke tests and optional CUDA smoke tests.
 
 ## Evidence status — 25 August 2026
