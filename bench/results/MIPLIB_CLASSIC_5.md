@@ -10,25 +10,24 @@ third-party inputs are intentionally not committed to the repository.
 ## Protocol
 
 ```text
-build\cmake-cuda\sk_mip.exe bench\data\miplib\mps\<name>.mps \
-  --time-limit 20 --quiet
+build\cmake-cuda\sk_bench.exe bench\data\miplib\mps\<name>.mps --time-limit 20
 ```
 
-The run uses the native revised-simplex relaxation, row and incumbent-objective
-bound propagation, pseudocost branching, best-bound backtracking, and the exact
-MILP gap test.
+The run uses the native revised-simplex relaxation, validated binary cover cuts,
+row and incumbent-objective bound propagation, pseudocost branching,
+best-bound backtracking, and the exact MILP gap test.
 An `optimal` row means the native dual bound closed the gap; a time limit is
 reported as a limit and is not treated as a failure or an optimality claim.
 
 ## Results
 
-| Instance | Rows | Cols | Integer vars | Status | Objective | Dual bound | Nodes | LP solves | Seconds |
-|---|---:|---:|---:|---|---:|---:|---:|---:|---:|
-| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 687 | 698 | 0.069364 |
-| bell5 | 91 | 104 | 58 | time limit | — | 8608417.94651 | 15871 | 16112 | 20.018210 |
-| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 14074 | 14184 | 3.528628 |
-| flugpl | 18 | 18 | 11 | optimal | 1201500 | 1201500 | 374 | 381 | 0.031429 |
-| set1ch | 492 | 712 | 240 | time limit | — | 35118.1098485 | 631 | 643 | 20.000373 |
+| Instance | Rows | Cols | Integer vars | Status | Objective | Dual bound | Cuts | Nodes | LP solves | Seconds |
+|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|
+| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 5 | 687 | 698 | 0.073620 |
+| bell5 | 91 | 104 | 58 | time limit | — | 8608417.94651 | 0 | 7864 | 7985 | 20.010701 |
+| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 0 | 14074 | 14184 | 3.629615 |
+| flugpl | 18 | 18 | 11 | optimal | 1201500 | 1201500 | 0 | 374 | 381 | 0.030934 |
+| set1ch | 492 | 712 | 240 | time limit | — | 35118.1098485 | 0 | 308 | 315 | 20.002282 |
 
 Summary: 3/5 instances were proven optimal within the fixed limit; the other
 two retained valid root dual bounds but no incumbent was found. These results
