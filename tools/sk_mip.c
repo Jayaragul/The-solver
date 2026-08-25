@@ -90,14 +90,14 @@ int main(int argc, char **argv)
            "\"status\":\"%s\",\"objective\":%.12g,\"dual_bound\":%.12g,\"mip_gap\":%.3e,"
            "\"primal_inf\":%.3e,\"integrality_inf\":%.3e,"
            "\"nodes\":%lld,\"lp_solves\":%lld,\"simplex_iterations\":%lld,"
-           "\"propagations\":%lld,\"heuristic_hits\":%lld,\"solutions\":%d,"
+           "\"propagations\":%lld,\"cuts_added\":%lld,\"heuristic_hits\":%lld,\"solutions\":%d,"
            "\"max_depth\":%d,\"root_bound\":%.12g,"
            "\"read_seconds\":%.6f,\"solve_seconds\":%.6f",
            path, m.nrow, m.ncol, m.A.p[m.ncol], sk_model_num_integer(&m),
            sk_result_name(s.result), s.objective, s.dual_bound, s.mip_gap,
            s.primal_infeasibility, maxint,
            st.nodes, st.lp_solves, st.simplex_iterations,
-           st.propagations, st.heuristic_hits, st.solutions_found,
+           st.propagations, st.cuts_added, st.heuristic_hits, st.solutions_found,
            st.max_depth, st.root_bound, tread, tsolve);
     if (!isnan(expect)) {
         double rel = fabs(s.objective - expect) / (1.0 + fabs(expect));
