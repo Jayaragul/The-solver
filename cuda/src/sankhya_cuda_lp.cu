@@ -33,13 +33,16 @@ __global__ void dual_update_kernel(
 
 __global__ void primal_update_extrapolate_kernel(
     int n, double tau, const double* old_x, const double* cost,
-    const double* gradient, const double* quadratic_diagonal,
+    const double* gradient, const double* quadratic_gradient,
+    const double* quadratic_diagonal,
     const double* lower, const double* upper,
     double theta, double* new_x, double* extrapolated) {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     const double curvature = quadratic_diagonal == nullptr ? 0.0 : quadratic_diagonal[i];
-    const double trial = (old_x[i] - tau * (cost[i] + gradient[i])) / (1.0 + tau * curvature);
+    const double qgradient = quadratic_gradient == nullptr ? 0.0 : quadratic_gradient[i];
+    const double trial = (old_x[i] - tau * (cost[i] + gradient[i] + qgradient)) /
+                         (1.0 + tau * curvature);
     const double next = project_box(trial, lower[i], upper[i]);
     new_x[i] = next;
     extrapolated[i] = next + theta * (next - old_x[i]);
@@ -72,8 +75,9 @@ double row_violation(
 
 }  // namespace
 
-int solve_diagonal_qp(
+int solve_qp(
     const SankhyaCudaCSR* matrix,
+    const SankhyaCudaCSR* hessian,
     const double* quadratic_diagonal,
     const double* c,
     const double* row_lower,
@@ -98,6 +102,7 @@ int solve_diagonal_qp(
     const int rows = matrix->rows;
     const int cols = matrix->cols;
     if (rows < 0 || cols < 0) return -1;
+    if (hessian != nullptr && (quadratic_diagonal != nullptr || hessian->rows != cols || hessian->cols != cols)) return -1;
     if (quadratic_diagonal != nullptr) {
         for (int column = 0; column < cols; ++column) {
             if (!std::isfinite(quadratic_diagonal[column]) || quadratic_diagonal[column] < 0.0) return -1;
@@ -117,11 +122,13 @@ int solve_diagonal_qp(
     double* d_y_new = nullptr;
     double* d_activity = nullptr;
     double* d_gradient = nullptr;
+    double* d_quadratic_gradient = nullptr;
     auto cleanup = [&]() {
         free_device(d_c); free_device(d_quadratic_diagonal); free_device(d_row_lower); free_device(d_row_upper);
         free_device(d_col_lower); free_device(d_col_upper); free_device(d_x);
         free_device(d_x_new); free_device(d_x_bar); free_device(d_y);
         free_device(d_y_new); free_device(d_activity); free_device(d_gradient);
+        free_device(d_quadratic_gradient);
     };
     auto allocate_copy = [](double** destination, const double* source, size_t count) -> bool {
         if (count == 0) return true;
@@ -138,7 +145,8 @@ int solve_diagonal_qp(
         (cols > 0 && (cudaMalloc(&d_x, sizeof(double) * cols) != cudaSuccess ||
                       cudaMalloc(&d_x_new, sizeof(double) * cols) != cudaSuccess ||
                       cudaMalloc(&d_x_bar, sizeof(double) * cols) != cudaSuccess ||
-                      cudaMalloc(&d_gradient, sizeof(double) * cols) != cudaSuccess)) ||
+                      cudaMalloc(&d_gradient, sizeof(double) * cols) != cudaSuccess ||
+                      (hessian != nullptr && cudaMalloc(&d_quadratic_gradient, sizeof(double) * cols) != cudaSuccess))) ||
         (rows > 0 && (cudaMalloc(&d_y, sizeof(double) * rows) != cudaSuccess ||
                       cudaMalloc(&d_y_new, sizeof(double) * rows) != cudaSuccess ||
                       cudaMalloc(&d_activity, sizeof(double) * rows) != cudaSuccess))) {
@@ -170,9 +178,13 @@ int solve_diagonal_qp(
             if (cudaGetLastError() != cudaSuccess) { cleanup(); return -1; }
         }
         if (sankhya_cuda_spmv_transpose_device_f64(matrix, d_y_new, d_gradient) != 0) { cleanup(); return -1; }
+        if (hessian != nullptr && sankhya_cuda_spmv_device_f64(hessian, d_x, d_quadratic_gradient) != 0) {
+            cleanup(); return -1;
+        }
         if (cols > 0) {
             primal_update_extrapolate_kernel<<<(cols + block - 1) / block, block>>>(
-                cols, settings.tau, d_x, d_c, d_gradient, d_quadratic_diagonal,
+                cols, settings.tau, d_x, d_c, d_gradient, d_quadratic_gradient,
+                d_quadratic_diagonal,
                 d_col_lower, d_col_upper, settings.theta, d_x_new, d_x_bar);
             if (cudaGetLastError() != cudaSuccess) { cleanup(); return -1; }
         }
@@ -182,11 +194,19 @@ int solve_diagonal_qp(
             if (cols > 0 && cudaMemcpy(host_x.data(), d_x, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
             if (sankhya_cuda_spmv_device_f64(matrix, d_x, d_activity) != 0 ||
                 (rows > 0 && cudaMemcpy(host_activity.data(), d_activity, sizeof(double) * rows, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
+            std::vector<double> host_qx;
+            if (hessian != nullptr) {
+                host_qx.resize(static_cast<size_t>(cols));
+                if (sankhya_cuda_spmv_device_f64(hessian, d_x, d_quadratic_gradient) != 0 ||
+                    (cols > 0 && cudaMemcpy(host_qx.data(), d_quadratic_gradient,
+                        sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess)) { cleanup(); return -1; }
+            }
             double objective = 0.0;
             for (int column = 0; column < cols; ++column) {
                 const double x = host_x[static_cast<size_t>(column)];
                 objective += c[column] * x;
                 if (quadratic_diagonal != nullptr) objective += 0.5 * quadratic_diagonal[column] * x * x;
+                else if (hessian != nullptr) objective += 0.5 * x * host_qx[static_cast<size_t>(column)];
             }
             double step = have_previous_x ? 0.0 : std::numeric_limits<double>::infinity();
             double scale = 1.0;
@@ -217,7 +237,7 @@ extern "C" int sankhya_cuda_lp_pdhg(
     const SankhyaCudaCSR* matrix, const double* c, const double* row_lower,
     const double* row_upper, const double* col_lower, const double* col_upper,
     SankhyaCudaLPSettings settings, double* solution, SankhyaCudaLPResult* result) {
-    return solve_diagonal_qp(matrix, nullptr, c, row_lower, row_upper, col_lower,
+    return solve_qp(matrix, nullptr, nullptr, c, row_lower, row_upper, col_lower,
         col_upper, settings, solution, result);
 }
 
@@ -227,6 +247,16 @@ extern "C" int sankhya_cuda_diagonal_qp_pdhg(
     const double* col_upper, SankhyaCudaLPSettings settings, double* solution,
     SankhyaCudaLPResult* result) {
     if (quadratic_diagonal == nullptr) return -1;
-    return solve_diagonal_qp(matrix, quadratic_diagonal, c, row_lower, row_upper,
+    return solve_qp(matrix, nullptr, quadratic_diagonal, c, row_lower, row_upper,
+        col_lower, col_upper, settings, solution, result);
+}
+
+extern "C" int sankhya_cuda_sparse_qp_pdhg(
+    const SankhyaCudaCSR* matrix, const SankhyaCudaCSR* hessian, const double* c,
+    const double* row_lower, const double* row_upper, const double* col_lower,
+    const double* col_upper, SankhyaCudaLPSettings settings, double* solution,
+    SankhyaCudaLPResult* result) {
+    if (hessian == nullptr) return -1;
+    return solve_qp(matrix, hessian, nullptr, c, row_lower, row_upper,
         col_lower, col_upper, settings, solution, result);
 }

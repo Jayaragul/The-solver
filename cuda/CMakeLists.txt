@@ -34,3 +34,7 @@ target_link_libraries(sankhya_qp_cuda PRIVATE sankhya_core sankhya_cuda)
 target_include_directories(sankhya_qp_cuda PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../c/include)
+add_test(NAME sankhya_cuda_general_qp_smoke
+    COMMAND sankhya_qp_cuda
+        ${CMAKE_SOURCE_DIR}/bench/smoke/tiny_qp.qps
+        --iterations 100000 --tolerance 1e-5)

@@ -86,6 +86,21 @@ SANKHYA_CUDA_API int sankhya_cuda_diagonal_qp_pdhg(
     double* solution,
     SankhyaCudaLPResult* result);
 
+/* Solve a convex sparse QP with a full resident CSR Hessian. The caller must
+   provide Q with dimensions cols x cols; the first-order path uses an
+   explicit Q*x product and reports approximate convergence. */
+SANKHYA_CUDA_API int sankhya_cuda_sparse_qp_pdhg(
+    const SankhyaCudaCSR* matrix,
+    const SankhyaCudaCSR* hessian,
+    const double* c,
+    const double* row_lower,
+    const double* row_upper,
+    const double* col_lower,
+    const double* col_upper,
+    SankhyaCudaLPSettings settings,
+    double* solution,
+    SankhyaCudaLPResult* result);
+
 /* Return zero on success. All host pointers are ordinary CPU memory. */
 SANKHYA_CUDA_API int sankhya_cuda_spmv_f64(
     int rows,

@@ -1,12 +1,13 @@
-# CUDA diagonal-QP path
+# CUDA sparse-QP path
 
 Date: 2026-08-25
 
-The native CUDA executable now accepts continuous QPS models whose Hessian is
-diagonal and nonnegative. It converts the canonical C solver CSC matrix to a
-resident CUDA CSR matrix, runs diagonal-QP PDHG, and independently recomputes
-the objective and primal residual with the native verifier. General sparse
-Hessians remain on the CPU QP path.
+The native CUDA executable accepts continuous QPS models. Diagonal,
+nonnegative Hessians use an implicit proximal update; general sparse Hessians
+use a resident CUDA CSR product. In both cases the canonical C solver CSC
+matrices are converted to resident CUDA CSR matrices, and the returned
+objective and primal residual are independently recomputed by the native
+verifier.
 
 ## Protocol
 
@@ -21,8 +22,10 @@ Measured on the local NVIDIA GeForce RTX 3050 Laptop GPU (CUDA 13.3):
 | Instance | Hessian | Status | Iterations | Objective | Primal inf | Seconds |
 |---|---|---:|---:|---:|---:|---:|
 | DPKLO1 | diagonal, 77 entries | converged | 8200 | 0.37009621712 | 6.067e-06 | 0.340967 |
+| TINYQP | full sparse, 4 entries | converged | 200 | -4 | 0.000e+00 | 0.017349 |
 
-The printed objective agrees with the native CPU optimum record
-(`0.370096217114`) to the displayed precision. The run is an accelerator
-capability record, not a claim that the first-order GPU path replaces the
-certificate-bearing CPU simplex/KKT engines.
+The printed DPKLO1 objective agrees with the native CPU optimum record
+(`0.370096217114`) to the displayed precision; TINYQP independently reaches
+the known objective `-4`. These are accelerator capability records, not a
+claim that the first-order GPU path replaces the certificate-bearing CPU
+simplex/KKT engines.

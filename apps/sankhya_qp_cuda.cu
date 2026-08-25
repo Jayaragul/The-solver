@@ -85,16 +85,23 @@ int main(int argc, char** argv)
     }
 
     if (model.Q == nullptr) {
-        std::fprintf(stderr, "CUDA QP path requires a QPS model with a diagonal Hessian\n");
+        std::fprintf(stderr, "CUDA QP path requires a QPS model with a Hessian\n");
         sk_model_free(&model);
         return 2;
     }
     std::vector<double> diagonal(static_cast<size_t>(model.ncol), 0.0);
+    bool diagonal_hessian = true;
     {
         for (int column = 0; column < model.ncol; ++column) {
             for (int p = model.Q->p[column]; p < model.Q->p[column + 1]; ++p) {
-                if (model.Q->i[p] != column || !std::isfinite(model.Q->x[p]) || model.Q->x[p] < 0.0) {
-                    std::fprintf(stderr, "CUDA QP path requires a finite nonnegative diagonal Hessian\n");
+                if (!std::isfinite(model.Q->x[p])) {
+                    std::fprintf(stderr, "CUDA QP path requires a finite Hessian\n");
+                    sk_model_free(&model);
+                    return 2;
+                }
+                if (model.Q->i[p] != column) diagonal_hessian = false;
+                else if (model.Q->x[p] < 0.0) {
+                    std::fprintf(stderr, "CUDA diagonal Hessian entries must be nonnegative\n");
                     sk_model_free(&model);
                     return 2;
                 }
@@ -119,6 +126,9 @@ int main(int argc, char** argv)
     std::vector<int> offsets, indices;
     std::vector<double> values;
     csc_to_csr(model.A, offsets, indices, values);
+    std::vector<int> q_offsets, q_indices;
+    std::vector<double> q_values;
+    if (!diagonal_hessian) csc_to_csr(*model.Q, q_offsets, q_indices, q_values);
     SankhyaCudaCSR matrix{};
     if (sankhya_cuda_csr_create(&matrix, model.nrow, model.ncol,
             static_cast<int>(values.size()), offsets.data(), indices.data(), values.data()) != 0) {
@@ -126,13 +136,24 @@ int main(int argc, char** argv)
         sk_model_free(&model);
         return 1;
     }
+    SankhyaCudaCSR hessian{};
+    if (!diagonal_hessian && sankhya_cuda_csr_create(&hessian, model.ncol, model.ncol,
+            static_cast<int>(q_values.size()), q_offsets.data(), q_indices.data(), q_values.data()) != 0) {
+        std::fprintf(stderr, "CUDA Hessian setup failed: %s\n", sankhya_cuda_last_error());
+        sankhya_cuda_csr_destroy(&matrix);
+        sk_model_free(&model);
+        return 1;
+    }
 
     std::vector<double> solution(static_cast<size_t>(model.ncol), 0.0);
     SankhyaCudaLPResult gpu_result{};
     const auto solve_start = std::chrono::steady_clock::now();
-    const int rc = sankhya_cuda_diagonal_qp_pdhg(&matrix, diagonal.data(),
-        model.c, model.rlow, model.rupp, model.clow, model.cupp, settings,
-        solution.data(), &gpu_result);
+    const int rc = diagonal_hessian
+        ? sankhya_cuda_diagonal_qp_pdhg(&matrix, diagonal.data(), model.c,
+            model.rlow, model.rupp, model.clow, model.cupp, settings,
+            solution.data(), &gpu_result)
+        : sankhya_cuda_sparse_qp_pdhg(&matrix, &hessian, model.c, model.rlow,
+            model.rupp, model.clow, model.cupp, settings, solution.data(), &gpu_result);
     const double solve_seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - solve_start).count();
 
@@ -148,6 +169,7 @@ int main(int argc, char** argv)
         gpu_result.maximum_row_violation, solve_seconds, sk_status_name(verify_status), checked.objective);
 
     sankhya_cuda_csr_destroy(&matrix);
+    if (!diagonal_hessian) sankhya_cuda_csr_destroy(&hessian);
     sk_model_free(&model);
     return rc == 0 && gpu_result.status == 0 && verify_status == SK_OK &&
         checked.primal_infeasibility <= 100.0 * settings.tolerance ? 0 : 3;

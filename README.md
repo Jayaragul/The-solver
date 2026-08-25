@@ -70,9 +70,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Every MILP incumbent is independently rechecked for row bounds, variable
   bounds, and integrality before it can affect pruning or the final gap.
 - CMake targets for native C smoke tests and optional CUDA smoke tests.
-- Native `sankhya_qp_cuda` accepts continuous diagonal-QPS models, keeps the
-  matrix resident on the GPU, and independently verifies the returned primal
-  objective and feasibility residual.
+- Native `sankhya_qp_cuda` accepts continuous QPS models, using an implicit
+  diagonal or resident sparse-Hessian product on the GPU, and independently
+  verifies the returned primal objective and feasibility residual.
 
 ## Evidence status — 25 August 2026
 
@@ -86,7 +86,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Sparse-LU regression | FTRAN/BTRAN through `n=1200`, 12 eta updates, singular rejection | passed |
 | CUDA sparse-operator smoke test | compiled for `sm_86` and passed on RTX 3050 Laptop GPU | passed |
 | CUDA PDHG LP smoke test | one-variable LP compiled and solved on GPU | passed |
-| CUDA diagonal-QP CLI | DPKLO1 solved on RTX 3050; objective `0.37009621712`, independently verified | recorded |
+| CUDA QP CLI | DPKLO1 diagonal and TINYQP off-diagonal QPS solved on RTX 3050; objectives independently verified | recorded |
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
@@ -105,7 +105,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 28/28 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 29/29 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
