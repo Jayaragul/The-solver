@@ -10,6 +10,7 @@
 #include <numeric>
 #include <queue>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -420,6 +421,24 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
     bool relaxation_unbounded = false;
     bool root_cuts_separated = false;
 
+    // Warm-started dual simplex for node relaxations
+    // (docs/architecture/LP.md \S1/\S2). Keyed by SearchNode::order,
+    // populated when a node's children are created and consumed-and-erased
+    // the moment that child is popped -- NOT a SearchNode field, since
+    // SearchNode::parent already keeps the whole ancestor chain alive for
+    // the rest of the search, and a Basis stored there would outlive its
+    // usefulness. This bounds the map to roughly the current queue width
+    // rather than the size of the whole tree.
+    std::unordered_map<std::uint64_t, std::shared_ptr<const Simplex::Basis>> pending_basis;
+    // Ruiz factors for workspace.A, computed once (lazily, on first use)
+    // AFTER root cover cuts have settled its final shape, and reused by
+    // every subsequent node's direct Simplex construction. workspace.A
+    // never changes again once cuts are separated (only lower_/upper_ do,
+    // one variable at a time), so recomputing this per node would spend
+    // exactly the cost warm-starting exists to avoid.
+    bool node_scale_ready = false;
+    ScaleFactors node_scale;
+
     LpSolverOptions relaxation_options = options.lp_options;
     relaxation_options.method = LpMethod::SIMPLEX;
     bool has_integer_variables = false;
@@ -649,6 +668,15 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         open.pop();
         ++solution.nodes_processed;
 
+        std::shared_ptr<const Simplex::Basis> node_parent_basis;
+        if (options.warm_start_node_relaxations) {
+            auto pending_it = pending_basis.find(node->order);
+            if (pending_it != pending_basis.end()) {
+                node_parent_basis = pending_it->second;
+                pending_basis.erase(pending_it);
+            }
+        }
+
         if (std::isfinite(incumbent) &&
             node->priority_bound >= incumbent -
                                          options.objective_tolerance * (1.0 + std::fabs(incumbent))) {
@@ -667,7 +695,44 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         workspace.upper = upper;
 
         ++solution.lp_relaxations;
-        const LpSolution relaxation = solve_lp(workspace, relaxation_options);
+        LpSolution relaxation;
+        std::shared_ptr<const Simplex::Basis> node_basis;
+        if (node->depth == 0 || !options.warm_start_node_relaxations) {
+            // Root always takes this path: its solve goes through
+            // solve_lp's presolve, and a warm basis is only valid for a
+            // child that solves over the SAME augmented column space --
+            // not guaranteed once presolve's bound-dependent reductions
+            // are in the picture. Every node also takes this path when the
+            // feature is off, which is exactly today's behavior.
+            relaxation = solve_lp(workspace, relaxation_options);
+        } else {
+            if (!node_scale_ready) {
+                node_scale = relaxation_options.use_ruiz_scaling
+                                 ? compute_ruiz_scaling(workspace.A)
+                                 : ScaleFactors::identity(workspace.n_rows(), workspace.n_cols());
+                node_scale_ready = true;
+            }
+            Simplex simplex(workspace, relaxation_options.backend,
+                             relaxation_options.use_ruiz_scaling, relaxation_options.pricing_rule,
+                             LpAlgorithm::AUTO, relaxation_options.parallel_mode, &node_scale);
+            if (relaxation_options.simplex_time_budget_seconds > 0.0) {
+                simplex.set_time_budget(relaxation_options.simplex_time_budget_seconds);
+            }
+            if (node_parent_basis) simplex.set_warm_start_basis(node_parent_basis.get());
+
+            const LpResult lp = simplex.solve();
+            relaxation.status = lp.status;
+            relaxation.x = lp.x;
+            relaxation.objective_value = lp.objective_value;
+
+            if (lp.used_warm_start) ++solution.warm_started_relaxations;
+            if (lp.warm_start_attempted && !lp.used_warm_start) {
+                ++solution.warm_start_verification_fallbacks;
+            }
+            if (lp.status == LpStatus::OPTIMAL) {
+                node_basis = std::make_shared<const Simplex::Basis>(simplex.export_basis());
+            }
+        }
         if (relaxation.status == LpStatus::INFEASIBLE) {
             record_pseudocost(*node, node->priority_bound, true);
             ++solution.nodes_pruned;
@@ -871,6 +936,14 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         right->branch_variable = branch_variable;
         right->branch_direction = +1;
         right->branch_distance = ceil_value - relaxation.x[jj];
+
+        if (node_basis) {
+            // Same shared_ptr, refcounted rather than duplicated -- both
+            // children start from the same parent basis, one bound-change
+            // delta apart from it in opposite directions.
+            pending_basis.emplace(left->order, node_basis);
+            pending_basis.emplace(right->order, node_basis);
+        }
 
         open.push(std::move(left));
         open.push(std::move(right));

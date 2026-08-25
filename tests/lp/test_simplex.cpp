@@ -428,3 +428,178 @@ SIHPS_TEST(dual_simplex_ratio_test_rejects_tiny_pivots) {
     SIHPS_ASSERT_NEAR(result.objective_value, -2.0 * expected, 1e-9);
     SIHPS_ASSERT_TRUE(result.primal_residual < 1e-9);
 }
+
+// --- Warm-started dual simplex (docs/architecture/LP.md \S1/\S2) ------
+//
+// The MILP B&B node loop is the caller these exist for: a child node's LP
+// differs from its parent's by exactly one tightened variable bound, and
+// the parent's optimal basis stays dual-feasible for the child by
+// construction (reduced costs depend only on cost_/basis_, neither of
+// which a bound-only change touches). These pin that mechanism directly
+// against Simplex, independent of MilpSolver -- see test_milp.cpp for the
+// MILP-level differential tests that exercise it end to end.
+
+SIHPS_TEST(warm_start_basis_round_trips_export_and_seat) {
+    LpProblem p = tiny_lp();
+
+    Simplex cold(p, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::PRIMAL);
+    auto cold_result = cold.solve();
+    SIHPS_ASSERT_TRUE(cold_result.status == LpStatus::OPTIMAL);
+    const Simplex::Basis basis = cold.export_basis();
+
+    // Same problem, no bound change at all -- the parent's basis should
+    // seat and be immediately recognized as optimal.
+    Simplex warm(p, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    warm.set_warm_start_basis(&basis);
+    auto warm_result = warm.solve();
+
+    SIHPS_ASSERT_TRUE(warm_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.warm_start_attempted);
+    SIHPS_ASSERT_TRUE(warm_result.used_warm_start);
+    SIHPS_ASSERT_NEAR(warm_result.objective_value, cold_result.objective_value, 1e-9);
+    SIHPS_ASSERT_NEAR(warm_result.x[0], cold_result.x[0], 1e-9);
+    SIHPS_ASSERT_NEAR(warm_result.x[1], cold_result.x[1], 1e-9);
+}
+
+// The core differential test: a child whose bound differs from the
+// parent by exactly one tightened upper bound, matching the B&B node
+// shape. child.upper[0] = 1.0 simulates a left branch on x, floor(1.6).
+//
+// Hand-derived: along the binding row x + 2y <= 4, x+y = (x+4)/2, which
+// increases with x -- so capping x at 1 (below its unconstrained optimum
+// 1.6) pushes the new optimum to the cap: x=1, y=(4-1)/2=1.5, checked
+// against row 2 (3x+y=4.5 <= 6, not binding). Objective -(x+y) = -2.5.
+SIHPS_TEST(warm_start_dual_simplex_matches_cold_solve_after_bound_tightening) {
+    LpProblem parent = tiny_lp();
+    Simplex parent_simplex(parent, PricingBackend::CPU, true, sihps::PricingRule::DEVEX,
+                            LpAlgorithm::PRIMAL);
+    auto parent_result = parent_simplex.solve();
+    SIHPS_ASSERT_TRUE(parent_result.status == LpStatus::OPTIMAL);
+    const Simplex::Basis parent_basis = parent_simplex.export_basis();
+
+    LpProblem child = parent;
+    child.upper[0] = 1.0;
+
+    Simplex cold(child, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    auto cold_result = cold.solve();
+
+    Simplex warm(child, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    warm.set_warm_start_basis(&parent_basis);
+    auto warm_result = warm.solve();
+
+    SIHPS_ASSERT_TRUE(cold_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.used_warm_start);
+    SIHPS_ASSERT_TRUE(warm_result.dual_iterations >= 1);
+    SIHPS_ASSERT_NEAR(cold_result.objective_value, -2.5, 1e-6);
+    SIHPS_ASSERT_NEAR(warm_result.objective_value, cold_result.objective_value, 1e-9);
+    SIHPS_ASSERT_NEAR(warm_result.x[0], cold_result.x[0], 1e-9);
+    SIHPS_ASSERT_NEAR(warm_result.x[1], cold_result.x[1], 1e-9);
+    SIHPS_ASSERT_TRUE(warm_result.primal_residual < 1e-6);
+    SIHPS_ASSERT_TRUE(warm_result.dual_residual < 1e-6);
+}
+
+// A shape mismatch (wrong n_struct) must be refused before seat_basis even
+// runs -- solve()'s own guard, ahead of seat_basis's internal one -- and
+// the solve must still reach the correct cold answer rather than fail.
+SIHPS_TEST(warm_start_falls_back_when_basis_shape_mismatches) {
+    LpProblem p = tiny_lp();
+    Simplex::Basis bad_basis;
+    bad_basis.n_struct = 999;
+    bad_basis.n_slack = 2;
+    bad_basis.n_art = 2;
+
+    Simplex simplex(p, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    simplex.set_warm_start_basis(&bad_basis);
+    auto result = simplex.solve();
+
+    SIHPS_ASSERT_TRUE(result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(!result.warm_start_attempted);
+    SIHPS_ASSERT_TRUE(!result.used_warm_start);
+    SIHPS_ASSERT_NEAR(result.objective_value, -2.8, 1e-6);
+}
+
+// A nonbasic FREE (AT_ZERO) column whose bounds have since become finite
+// is the one structural case seat_basis refuses outright rather than
+// guesses at. x has zero cost and an all-zero column, so it never leaves
+// AT_ZERO in the parent; the child gives it a finite lower bound it did
+// not have before.
+SIHPS_TEST(warm_start_free_variable_edge_case_falls_back_safely) {
+    LpProblem parent;
+    std::vector<Triplet> t = {{0, 1, 1.0}}; // only y (col 1) appears in the row
+    parent.A = CSRMatrix::from_triplets(1, 2, t);
+    parent.obj = {0.0, -1.0}; // minimize -y; x has no objective pressure
+    parent.rhs = {5.0};
+    parent.row_types = {'L'};
+    parent.lower = {-kInfinity, 0.0};
+    parent.upper = {kInfinity, kInfinity};
+    sihps::apply_default_row_bounds(parent);
+
+    Simplex parent_simplex(parent, PricingBackend::CPU, true, sihps::PricingRule::DEVEX,
+                            LpAlgorithm::PRIMAL);
+    auto parent_result = parent_simplex.solve();
+    SIHPS_ASSERT_TRUE(parent_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(parent_result.x[0], 0.0, 1e-9); // x rests AT_ZERO
+    SIHPS_ASSERT_NEAR(parent_result.x[1], 5.0, 1e-9);
+    const Simplex::Basis parent_basis = parent_simplex.export_basis();
+
+    LpProblem child = parent;
+    child.lower[0] = 0.0; // x now has a finite side it did not have before
+
+    Simplex warm(child, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    warm.set_warm_start_basis(&parent_basis);
+    auto warm_result = warm.solve();
+
+    SIHPS_ASSERT_TRUE(warm_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.warm_start_attempted);
+    SIHPS_ASSERT_TRUE(!warm_result.used_warm_start); // seat_basis refused; cold path answered
+    SIHPS_ASSERT_NEAR(warm_result.objective_value, -5.0, 1e-6);
+    SIHPS_ASSERT_NEAR(warm_result.x[1], 5.0, 1e-6);
+    SIHPS_ASSERT_TRUE(warm_result.primal_residual < 1e-6);
+    SIHPS_ASSERT_TRUE(warm_result.dual_residual < 1e-6);
+}
+
+// sctap1-scale differential test -- not just a hand-built 2x2. Tightens
+// whichever structural variable the parent solution rests largest on, a
+// stand-in for a branching decision chosen this way so the test does not
+// depend on sctap1's specific column meanings.
+SIHPS_TEST(warm_start_agrees_with_cold_solve_on_sctap1_after_a_bound_change) {
+    auto model = read_mps_file(std::string(SIHPS_PROJECT_ROOT) +
+                                "/data/netlib_lp/feasible/sctap1.mps");
+    LpProblem parent = sihps::lp_problem_from_mps(model);
+
+    Simplex parent_simplex(parent, PricingBackend::CPU, true, sihps::PricingRule::DEVEX,
+                            LpAlgorithm::DUAL);
+    auto parent_result = parent_simplex.solve();
+    SIHPS_ASSERT_TRUE(parent_result.status == LpStatus::OPTIMAL);
+    const Simplex::Basis parent_basis = parent_simplex.export_basis();
+
+    std::size_t branch_col = 0;
+    double branch_value = parent_result.x[0];
+    for (std::size_t j = 1; j < parent_result.x.size(); ++j) {
+        if (parent_result.x[j] > branch_value) {
+            branch_value = parent_result.x[j];
+            branch_col = j;
+        }
+    }
+    SIHPS_ASSERT_TRUE(branch_value > 1.0); // otherwise this test proves nothing
+
+    LpProblem child = parent;
+    child.upper[branch_col] = branch_value / 2.0;
+
+    Simplex cold(child, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    auto cold_result = cold.solve();
+
+    Simplex warm(child, PricingBackend::CPU, true, sihps::PricingRule::DEVEX, LpAlgorithm::AUTO);
+    warm.set_warm_start_basis(&parent_basis);
+    auto warm_result = warm.solve();
+
+    SIHPS_ASSERT_TRUE(cold_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.status == LpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(warm_result.used_warm_start);
+    SIHPS_ASSERT_TRUE(warm_result.dual_iterations >= 1);
+    SIHPS_ASSERT_TRUE(std::fabs(warm_result.objective_value - cold_result.objective_value) <=
+                       1e-9 * (1.0 + std::fabs(cold_result.objective_value)));
+    SIHPS_ASSERT_TRUE(warm_result.primal_residual < 1e-6);
+    SIHPS_ASSERT_TRUE(warm_result.dual_residual < 1e-6);
+}

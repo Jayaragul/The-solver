@@ -33,7 +33,7 @@ LPMethod select_method(const LPWarmStartContext& ctx) {
 
 Both algorithms are implemented and both are reachable: `LpAlgorithm::{PRIMAL, DUAL, AUTO}` on `Simplex`, surfaced as `LpSolverOptions::algorithm` on the `solve_lp` pipeline.
 
-**`AUTO` resolves to `PRIMAL` today, and that is this table's own rule, not a preference.** The table selects dual simplex when a *parent basis* is available and dual-feasible for the child; it selects primal on a cold start. Every call today is a cold start, because no warm-start entry point exists yet — the MILP engine that will supply parent bases is not built. When it is, `AUTO` gains the parent-basis branch. Resolving `AUTO` to dual before then would be selecting an algorithm outside the conditions this table justifies it under.
+**`AUTO` resolves to `PRIMAL` on a cold start, and gains the parent-basis branch when one is supplied.** `Simplex::set_warm_start_basis`/`export_basis` (`Simplex.hpp`) are now implemented: a caller exports a solved instance's basis and seats it into a fresh instance over a bound-tightened child, and `solve()` runs the dual-simplex repair from there — ahead of both cold paths — before falling back if verification fails. `MilpSolverOptions::warm_start_node_relaxations` wires this into the B&B node loop (`MILP.md` §1.4). See §8 below for what this measured.
 
 **EXPERIMENTAL RESULT — cold-start primal vs dual** (`benchmarks/bench_lp_algorithm.cpp`, Netlib feasible set to 2600 rows, full `solve_lp` pipeline including presolve, Devex pricing, Ruiz scaling, 79 instances where the dual path was actually entered and both algorithms reached `OPTIMAL`):
 
@@ -297,3 +297,177 @@ this policy. It cannot change pivot choices, objective values, feasibility
 checks, or reported statuses. Parallelism between independent solver calls is
 not enabled implicitly because the surrounding MILP/domain scheduler owns the
 resource budget and must decide how many domains to run at once.
+
+---
+
+## 8. Warm-started dual simplex for MILP nodes — implemented, measured, **not** adopted by default
+
+**IMPLEMENTED.** `Simplex::Basis`/`set_warm_start_basis`/`export_basis` (this
+file's long-stated missing piece, and `MILP.md`'s stated prerequisite) exist
+and are unit-tested (`tests/lp/test_simplex.cpp`'s `warm_start_*` cases,
+`tests/milp/test_milp.cpp`'s `milp_warm_start_*` cases): a non-root B&B node
+constructs a `Simplex` directly over the shared node workspace (bypassing
+`solve_lp`'s presolve — see the reasoning below), seats its parent's exported
+basis, and runs the dual-simplex repair. The result passes the exact same
+original-space verification gate (`NUMERICS.md` §6) as every other path;
+`MILP.md` §4.1's invariant that every node bound comes from a certified
+simplex solve is unchanged. Gated behind
+`MilpSolverOptions::warm_start_node_relaxations`, **default `false`**.
+
+**Why presolve is bypassed at node level, not made warm-start-aware.**
+Presolve's reductions are bound-dependent — a child's tighter bound can fix a
+column or drop a row the parent's presolve did not — so a warm basis is only
+valid if parent and child solve over the *same* augmented column space.
+Proving a specific presolve reduction is basis-preserving under one bound
+tightening is a real but separate validation project; skipping presolve for
+non-root nodes sidesteps the question by construction. The cost of that
+choice is measured directly below.
+
+**MEASURED, `benchmarks/bench_miplib.cpp` against `data/miplib2017_small`, 60 s
+per instance, single process, nothing else running**
+(`reports/runs/2026-08-25/miplib-warmstart-{off,on}.txt`):
+
+| instance | nodes (off) | nodes (on) | certified (off) | certified (on) |
+|---|---|---|---|---|
+| `gen-ip002` | 298,448 | 792,647 (2.7×) | — (`TIME_LIMIT`) | — (`TIME_LIMIT`) |
+| `gen-ip054` | 251,141 | 1,033,448 (4.1×) | — | — |
+| `markshare2` | 669,274 | 2,390,406 (3.6×) | — | — |
+| `neos859080` | 331 | 191,082 (577×) | **yes** — `INFEASIBLE`, 0.795 s | **no** — `TIME_LIMIT` |
+| `pk1` | 126,318 | 468,345 (3.7×) | — | — |
+
+Certified results across the set: **1/5 → 0/5.** Node throughput improved
+2.7–577× everywhere it was measured, and the outcome got *worse* on the one
+metric the roadmap's KPI gate actually cares about. `neos859080` is the sharp
+case: cold, it proves infeasibility in 331 nodes because presolve-level
+reductions (not deep B&B search) do most of the work; warm-started, each node
+is faster but has to rediscover that structure by search alone, and 191,082
+nodes in 60 s is not enough to finish what 331 presolved nodes did.
+
+**KNOWN LIMITATION / RESEARCH HYPOTHESIS, not yet tested:** the working
+hypothesis is that node-level presolve — not the per-node LP solve — is
+carrying most of the pruning power on this instance set, and warm-starting
+without it trades a cost that mattered less (LP re-solve time) for one that
+matters more (lost structural reductions). A presolve-aware warm start
+(verifying which reductions survive a specific bound tightening, or a
+cheaper node-local propagation pass that does not require bypassing
+`solve_lp` entirely) is the natural next increment if this path is revisited
+— not a larger MILP heuristic/cut effort, which this measurement does not
+implicate.
+
+**Per the roadmap's own rule** ("no optimization is accepted unless it
+improves a declared benchmark KPI without reducing correctness or
+solvability"): this does not clear that bar, so the default stays `false`.
+The code, tests, and this measurement are kept rather than reverted, because
+a negative result recorded with its cause is worth more to the next attempt
+than no result at all.
+
+---
+
+## 9. Hyper-sparse BTRAN — implemented, measured, a real win at scale
+
+**IMPLEMENTED.** `BasisFactorization::btran` (`src/lp/BasisFactorization.cpp`)
+now uses Gilbert & Peierls' 1988 DFS-reachability technique for its two
+triangular solve phases (U^T then L^T), instead of the unconditional O(m)
+sweep every prior version used regardless of how sparse the right-hand side
+actually was. This is the roadmap's own long-standing "Hyper-sparse
+FTRAN/BTRAN with active-pattern detection" item — scoped to **BTRAN only**
+for v1 (see the design note below); FTRAN's `ftran_column` remains a named,
+deferred v2 candidate.
+
+The factorization already contained the exact DFS machinery this needed
+(`sparse_lsolve`, built for the *factorization's own* sparse column solves)
+— it was simply never wired into a post-factorization solve. Reusing it
+directly turned out not to be possible: `sparse_lsolve` operates in
+matrix-row space via `pinv_` indirection, which only holds during
+construction; post-factorization, `Li_`/`Ui_` are already remapped into
+pivot-step space. `btran` instead calls a new, simpler `reach()` — the same
+DFS-with-explicit-stack shape, but working directly over row-major (CSR)
+transposes of L's and U's off-diagonal structure (`Lt_p_/Lt_i_`,
+`Ut_p_/Ut_i_`), built once per `factorize()` call since neither L nor U
+changes again before the next refactorization. The eta phase is
+deliberately **not** sparsified: eta count is bounded by the
+refactorization cadence, not by `m_`, so it was never the O(m) cost this
+targets.
+
+### A real bug, caught by the existing differential test suite before it shipped
+
+The first version had a mark-value collision: `sparse_lsolve` already uses
+mark values `0..m-1` internally during `factorize()` (one per pivot step),
+and the new `reach()`'s own mark counter started at 0 too, incrementing
+per call. Its very first invocation could therefore reuse a mark value
+`sparse_lsolve` had already written into the shared `mark_` array during
+factorization — making a genuine DFS seed look "already visited" and
+silently dropping it from the discovered pattern. `basis_factorization_
+requires_pivoting` (`tests/lp/test_basis_factorization.cpp`, a 3x3 matrix
+whose natural first pivot is zero) failed immediately: `check_btran`
+verifies `B^T y = c` directly against the dense reference matrix, and the
+corrupted pattern produced a wrong `y`. Fixed by starting the DFS mark
+counter at `m_` (`solve_mark_ = m_;`, reset in `factorize()`) rather than
+0, guaranteeing no future `reach()` call can ever collide with a mark
+`sparse_lsolve` already used. Three new tests pin this specifically
+(`basis_factorization_btran_matches_dense_on_unit_vector_rhs`,
+`..._after_updates`, `..._when_pivot_order_permutes_rows` — the last being
+this exact regression case, kept small and separate from the random trials
+so a future break here fails immediately rather than inside a tolerance).
+
+### MEASURED — large LP: a clean win; small MILP nodes: two more lessons
+
+**Large LP (`stocfor3`, 16,675 rows), 3 clean single-process trials each,
+median wall-clock:** 15.379 s (dense) → 12.852 s (hyper-sparse), a real
+**16.4% improvement**. Per-stage: `pivot row: BTRAN` (`compute_binv_row`'s
+RHS is always a unit vector — pattern size 1, the theoretically best case)
+improved consistently, **~24%** across every trial. `duals (BTRAN)`
+(`compute_duals`'s RHS is `c_B`) showed a small, noisy, roughly neutral
+effect.
+
+Getting a *reliable* read here took two false starts, both instructive:
+
+1. **A single before/after pair showed `duals (BTRAN)` 67% SLOWER**, not
+   faster. Investigation (not another retraction — the effect was real,
+   just not what it looked like) found the actual cause: once phase 2 has
+   many nonzero-cost structural variables basic, `c_B` is often not sparse
+   at all, and the DFS then pays its own per-node bookkeeping on top of
+   visiting nearly every node anyway — strictly more work than the dense
+   sweep it replaced. Fixed with a density fallback
+   (`kHyperSparseDensityThreshold = 0.3`, an engineering default from this
+   one measurement, not a tuned optimum): when the seed pattern already
+   exceeds 30% of `m_`, `btran` skips `reach()` entirely and processes
+   every column in the same order the original dense sweep always used,
+   by writing the identity (or reversed-identity, for the L^T phase)
+   permutation into `pattern_` — reusing the same restricted-sweep loop
+   rather than duplicating it.
+2. **Even after that fix, one profiling run looked like an *overall*
+   regression** (17.874 s, with stages the BTRAN change cannot touch —
+   pricing, `A^T` assembly — also reading high). Three repeat trials of
+   the *identical* binary showed 12.3–13.2 s: this was measurement noise
+   (this repo's own documented risk — three previously retracted
+   conclusions came from exactly this), not a code effect. The clean
+   multi-trial comparison above is the one to trust.
+
+**Small MILP node relaxations** (`bench_miplib`, the 5-instance MIPLIB set,
+m in the 7–90 row range, warm start off): node throughput in the 60 s
+budget dropped 4–7% at first. Root cause, confirmed by rereading the code
+rather than re-guessing: `btran`'s new DFS path allocated fresh
+`std::vector` locals (`seed`, `ut_pattern`) on *every call* — and `btran`
+runs every simplex iteration, across hundreds of thousands of B&B nodes for
+instances like `markshare2`. This is exactly what `BasisFactorization`'s
+own existing scratch-member convention (`pattern_`, `dfs_node_`, etc., all
+sized once in `factorize()`, per `prompt.md` §3.1's no-allocation-during-
+solve rule) exists to prevent — the new code just didn't follow it. Fixed
+by giving both arrays dedicated `mutable` scratch members
+(`seed_work_`/`ut_pattern_work_`), reserved once in `factorize()` and
+repopulated via `clear()`/`assign()` rather than reallocated. This
+recovered most, not quite all, of the throughput gap — but the residual
+(2–5%) is the same order of magnitude as this instance set's own natural
+run-to-run variance under a time-limited budget (`gen-ip002`'s node count
+alone ranged 287,498–298,448 across three *unrelated* runs of the
+unmodified dense code earlier the same session), so it is recorded as
+**within noise**, not as a confirmed further regression.
+
+**Net assessment:** a genuine, reproducible win on the scale this project's
+target workload (MRPL, large refinery models) actually cares about, with
+two real defects found and fixed along the way (the mark-collision
+correctness bug, and the allocation-driven small-instance slowdown) rather
+than papered over. No KPI regression on the existing benchmark suite —
+128/128 unit tests pass (3 new, added for this change), and every
+Netlib/MIPLIB verdict is unchanged from before this change.

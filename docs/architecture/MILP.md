@@ -53,6 +53,17 @@ re-solve. The sparse matrix is copied once for the solve and then reused;
 node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
+**Exception, off by default:** `MilpSolverOptions::warm_start_node_relaxations`
+(`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
+entirely, constructing `Simplex` directly and seating the parent's exported
+basis instead. A warm basis is only valid over the *same* augmented column
+space it was computed for, which node-level presolve is not guaranteed to
+preserve under a tightened bound — so this path trades node presolve away
+rather than trying to reconcile the two. `MEASURED` to be a net loss on the
+current MIPLIB benchmark for exactly that reason (§4.1's certified-bound
+invariant is unaffected either way — the traded-away presolve reductions,
+not correctness, are what the measurement blames).
+
 ## 2. Cuts (implemented root mixed-row cover subset)
 
 The first cut implementation is deliberately narrow and auditable: root-only

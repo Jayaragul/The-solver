@@ -26,7 +26,8 @@ in this document is an estimate.
 | max | **25.066 s** (`stocfor3`) | JSONL |
 | total iterations | 255,144 | JSONL |
 | worst relative objective error | 5.779e-07 | JSONL |
-| unit tests | 104 / 104 | `ctest` |
+| MIPLIB 2017 subset (5 instances, 60s budget) certified | **1 / 5** | `reports/runs/2026-08-25/miplib-raw.txt` |
+| unit tests | 128 / 128 | `ctest` |
 
 `MEASURED`. Single process, nothing else running, build stamp
 `1afe5bfa` recorded in the JSONL header.
@@ -90,28 +91,68 @@ generated adversarial cases. That is weaker evidence than the roadmap asks for.
 | Devex pricing | `IMPLEMENTED`, `MEASURED` at 2.16× Dantzig per iteration |
 | Ruiz scaling | `IMPLEMENTED`, `MEASURED` |
 | Presolve (core reductions) | `IMPLEMENTED` |
-| **Warm-started dual simplex** (`solve_from_basis`) | **NOT IMPLEMENTED** |
-| Hyper-sparse FTRAN/BTRAN with active-pattern detection | **NOT IMPLEMENTED** |
+| **Warm-started dual simplex** (`Simplex::set_warm_start_basis`/`export_basis`) | `IMPLEMENTED`, `MEASURED` — see below |
+| Hyper-sparse **BTRAN** with active-pattern detection | `IMPLEMENTED`, `MEASURED` — see below; FTRAN's `ftran_column` deferred |
 | Markowitz / AMD ordering, symbolic reuse | **NOT IMPLEMENTED** |
 | Presolve expansion (doubleton, aggregation, probing, …) | **NOT IMPLEMENTED** |
 
-`KNOWN LIMITATION`: the roadmap names warm-started dual simplex as the single
-largest likely gain and ranks it **priority 3**. It does not exist. This is the
-most important outstanding LP item and it is a hard prerequisite for a
-competitive MILP engine, where every node is a warm child solve.
+`MEASURED` (`docs/architecture/LP.md` §9): `BasisFactorization::btran` now
+uses Gilbert-Peierls DFS reachability instead of an unconditional O(m)
+sweep, gated by a measured density fallback for RHS vectors that turn out
+not to be sparse in practice. Clean 3-trial comparison on `stocfor3`
+(16,675 rows): median wall-clock **15.379 s → 12.852 s (16.4% faster)**;
+the always-maximally-sparse `compute_binv_row` call site improved ~24%
+consistently. On small MILP node relaxations (MIPLIB, m in the 7–90 range)
+the initial version cost 4–7% of node throughput from a real bug (fresh
+per-call heap allocations violating this project's own no-allocation-
+during-solve discipline); fixed, with the small residual left within this
+instance set's own observed run-to-run noise. FTRAN's `ftran_column` RHS
+is sparse too but its result typically fills in through `U`, so it is a
+named, deferred v2 candidate rather than part of this pass.
+
+`MEASURED` (`docs/architecture/LP.md` §8, `reports/runs/2026-08-25/
+miplib-warmstart-{off,on}.txt`): wired into MILP node relaxations behind
+`MilpSolverOptions::warm_start_node_relaxations` (default `false`). It
+delivers the node-throughput gain the roadmap predicted — 2.7–577× more
+nodes processed in the same 60 s budget across the 5-instance MIPLIB
+set — and that gain is *worse* for MILP once measured end to end:
+certified results went **1/5 → 0/5**, because non-root nodes bypass
+presolve (a warm basis is only valid over the same column space presolve
+produced it for) and lose more pruning power from that than the faster
+per-node solve buys back. `KNOWN LIMITATION`, not a defect: this is a real
+trade, recorded rather than hidden, and the default stays off per this
+document's own KPI-gate rule. See `docs/architecture/LP.md` §8 for the
+full measurement and the presolve-aware-warm-start hypothesis it points to
+next.
 
 ---
 
 ## Phase 3–5 — MILP
 
-**NOT IMPLEMENTED.** There is no branch-and-bound, no integrality metadata, no
-node management, no cuts.
+**`IMPLEMENTED`, since this document was last synchronized against the
+code.** `src/milp/MilpProblem.{hpp,cpp}` and `src/milp/MilpSolver.{hpp,cpp}`
+exist: best-bound branch-and-bound, reliability branching (with
+strong-branching probes and pseudocost fallback), root-only mixed-row cover
+cuts (`docs/architecture/MILP.md` §2), a safe rounding heuristic, LP diving,
+and local improvement. 116/116 unit tests pass, including MILP-specific
+brute-forceable cases (tiny integer optima, infeasibility proofs, node-limit
+handling, cover-cut validity) and the warm-start differential tests above.
 
-`ENGINEERING DECISION`: branch and bound was explicitly *not* built during this
-work despite being requested, because the benchmark set in question (Netlib) is
-pure LP — there are no integer variables to branch on, so B&B could not have
-moved the measured score. It becomes the top priority the moment MIPLIB is the
-target.
+`KNOWN LIMITATION`, and the one that actually matters right now:
+**unit-correct is not benchmark-ready.** `benchmarks/bench_miplib.cpp`
+against 5 real MIPLIB 2017 instances (60 s budget each,
+`reports/runs/2026-08-25/miplib-raw.txt`) certifies only **1/5**
+(`neos859080`, proven infeasible) and gets 3/5 badly wrong incumbents within
+budget (`markshare2`: 231 vs. true optimum 1; `pk1`: 44 vs. 11). This, not
+warm-starting or further cuts, is the benchmark gap that should govern what
+gets built next for MILP.
+
+`ENGINEERING DECISION` (historical): branch-and-bound was intentionally not
+built in this document's original pass because the benchmark set in question
+(Netlib) is pure LP. It was subsequently built anyway, ahead of item 1 above
+in this document's own priority order (warm-started dual simplex, which was
+still unimplemented at the time) — a deviation from the stated sequencing,
+recorded here rather than left implicit.
 
 ---
 
@@ -239,19 +280,41 @@ no refinery-*specific* claim is admissible.
 
 ## Next, in the roadmap's own priority order
 
-1. **Warm-started dual simplex** (`solve_from_basis`). Priority 3 on the
-   roadmap, missing, and the prerequisite for everything in MILP. The Kennington
-   results sharpen this: the simplex hits its budget on `ken-13`, `ken-18`,
-   `pds-20`, `qap12` and `qap15`, and those are exactly the models where a warm
-   start has the most to give.
+Items 1 and 5 from the prior revision of this list — warm-started dual
+simplex and a minimal correct MILP B&B — are both now built. Warm-starting
+was measured end to end (`docs/architecture/LP.md` §8) and did not clear the
+KPI gate, so it ships off by default; the B&B exists but is not yet
+benchmark-ready, which is now the top item below.
+
+1. **Close the MILP benchmark gap.** 1/5 certified and 3/5 badly wrong
+   incumbents on the 5-instance MIPLIB set within a 60 s budget
+   (`reports/runs/2026-08-25/miplib-raw.txt`) is the real open MILP item —
+   ahead of any further cuts, heuristics, or symmetry work, none of which
+   this measurement implicates *blindly*. Diagnosed (three independent
+   passes: instance-difficulty research, cover-cut correctness audit,
+   B&B bound-tracking audit — all in this repository's history, no fresh
+   citation needed here): `markshare2`'s badness is *expected* — it is
+   from Cornuéjols & Dawande's 1999 "hard small 0-1 programs" paper,
+   deliberately constructed to defeat conventional B&B; no cut or
+   branching fix reaches it without a Feasibility-Pump-class method or a
+   lattice/GCD reformulation. Cover-cut generation and B&B bound-tracking
+   were both audited line-by-line and are correct — no bug. `pk1`/
+   `gen-ip002`/`gen-ip054` are MIPLIB-rated "easy" yet perform badly for a
+   real, fixable reason: all three generate **zero** cover cuts (`gen-ip*`
+   have no binary variables at all — cover-cut separation only targets
+   binary-domain knapsack rows, by construction; `pk1`'s precedence-shaped
+   constraints don't trigger the cover condition either). Concrete next
+   candidates: Gomory/MIR cuts (apply to general-integer rows, unlike
+   cover cuts), and separating cuts at more than one round/node — cuts
+   currently fire once, at the root only, even when they do apply.
 2. **Peak RSS / VRAM capture and repeated-run medians** — the two Phase 0 gaps
    that still let a regression hide.
 3. **Generated adversarial LPs + Compute Sanitizer** — Phase 1's real
    acceptance criteria, currently only argued from Netlib.
-4. **Hyper-sparse FTRAN/BTRAN**, then presolve expansion.
-5. **Minimal correct MILP B&B**, verified against exhaustive enumeration.
-6. Feasibility polishing for the six stalling PDLP instances.
-7. Layer D refinery generator — without it, no refinery claim is admissible.
+4. **Hyper-sparse FTRAN** (BTRAN is now done — `docs/architecture/LP.md`
+   §9), then Markowitz/AMD ordering and presolve expansion.
+5. Feasibility polishing for the six stalling PDLP instances.
+6. Layer D refinery generator — without it, no refinery claim is admissible.
 
 The governing rule stands: *no optimization is accepted unless it improves a
 declared benchmark KPI without reducing correctness or solvability.* Two changes

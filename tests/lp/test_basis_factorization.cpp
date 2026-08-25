@@ -250,6 +250,86 @@ SIHPS_TEST(basis_factorization_survives_many_successive_updates) {
     }
 }
 
+// --- Hyper-sparse BTRAN (docs/architecture/LP.md \S9) -------------------
+//
+// Unit-vector and other clearly sparse right-hand sides are exactly the
+// shape compute_binv_row/compute_duals feed btran() in the simplex hot
+// path. check_btran above already covers dense-ish RHS extensively
+// (including the pivoting-required and eta-file cases); these pin the
+// specific sparse shape the DFS reachability path exists for.
+
+SIHPS_TEST(basis_factorization_btran_matches_dense_on_unit_vector_rhs) {
+    std::mt19937 rng(2024);
+    const std::int32_t m = 30;
+    Dense b = random_nonsingular(m, 0.15, rng);
+    for (std::int32_t row = 0; row < m; ++row) {
+        std::vector<double> unit(static_cast<std::size_t>(m), 0.0);
+        unit[static_cast<std::size_t>(row)] = 1.0;
+        check_btran(b, unit, 1e-8);
+    }
+}
+
+SIHPS_TEST(basis_factorization_btran_matches_dense_on_sparse_rhs_after_updates) {
+    std::mt19937 rng(99);
+    const std::int32_t m = 22;
+    Dense b = random_nonsingular(m, 0.15, rng);
+
+    BasisFactorization factor;
+    SIHPS_ASSERT_TRUE(factor.factorize(m, to_columns(b)).ok);
+
+    // Several PFI updates first, so the eta file is nonempty -- btran()'s
+    // eta phase stays dense by design (docs/architecture/LP.md \S9), and
+    // this checks that the sparse DFS phase downstream of it still sees
+    // the correct post-eta pattern rather than a stale one.
+    std::uniform_real_distribution<double> value(-3.0, 3.0);
+    for (std::int32_t update_index = 0; update_index < 8; ++update_index) {
+        const std::int32_t leaving = update_index % m;
+        std::vector<double> entering(static_cast<std::size_t>(m), 0.0);
+        for (auto& v : entering) v = value(rng);
+        entering[static_cast<std::size_t>(leaving)] += 12.0;
+
+        std::vector<double> direction = entering;
+        factor.ftran(direction);
+        SIHPS_ASSERT_TRUE(factor.update(leaving, direction));
+
+        for (std::int32_t row = 0; row < m; ++row) {
+            b[static_cast<std::size_t>(row)][static_cast<std::size_t>(leaving)] =
+                entering[static_cast<std::size_t>(row)];
+        }
+    }
+
+    for (std::int32_t row : {0, 5, m - 1}) {
+        std::vector<double> unit(static_cast<std::size_t>(m), 0.0);
+        unit[static_cast<std::size_t>(row)] = 1.0;
+        std::vector<double> y = unit;
+        factor.btran(y);
+        for (std::int32_t col = 0; col < m; ++col) {
+            double accumulated = 0.0;
+            for (std::int32_t r = 0; r < m; ++r) {
+                accumulated += b[static_cast<std::size_t>(r)][static_cast<std::size_t>(col)] *
+                                y[static_cast<std::size_t>(r)];
+            }
+            SIHPS_ASSERT_NEAR(accumulated, unit[static_cast<std::size_t>(col)], 1e-6);
+        }
+    }
+}
+
+// The exact regression this rewrite fixed: reach()'s mark_ values
+// collided with sparse_lsolve's own leftover marks from factorize() (both
+// range over small integers starting at 0), so a genuine seed could look
+// "already visited" and get silently dropped from the discovered pattern.
+// This 3x3 case (a natural first pivot of zero, forcing row reordering)
+// is the smallest one that exposed it -- kept as its own test so a future
+// regression here fails immediately rather than being buried in a
+// larger random trial's tolerance.
+SIHPS_TEST(basis_factorization_btran_correct_when_pivot_order_permutes_rows) {
+    Dense b = {{0, 2, 1}, {1, 0, 3}, {4, 5, 0}};
+    check_btran(b, {1.0, 1.0, 1.0}, 1e-10);
+    check_btran(b, {1.0, 0.0, 0.0}, 1e-10);
+    check_btran(b, {0.0, 1.0, 0.0}, 1e-10);
+    check_btran(b, {0.0, 0.0, 1.0}, 1e-10);
+}
+
 // A zero pivot must be refused rather than producing infinities.
 SIHPS_TEST(basis_factorization_update_rejects_tiny_pivot) {
     Dense b = {{1, 0}, {0, 1}};

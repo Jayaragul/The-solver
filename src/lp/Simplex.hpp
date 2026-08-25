@@ -62,26 +62,29 @@ enum class PricingRule { DANTZIG, DEVEX };
 // variable has a finite bound on the side its cost points to. When that
 // holds, the entire phase 1 is skipped.
 //
-// AUTO resolves to PRIMAL on a cold start, which is every solve today.
-// That is docs/architecture/LP.md \S2's own decision table, not a
-// preference: it selects dual simplex when a PARENT BASIS is available and
-// dual-feasible for the child, and primal on a cold start. No warm-start
-// entry point exists yet, so the parent-basis branch is unreachable, and
-// AUTO gains it when that entry point is built. Cold-start measurement
-// backs this up rather than merely permitting it -- LP.md \S2.1 records
-// dual costing 2.71x the iterations and 3.22x the wall-clock of primal
-// across the Netlib instances that enter it.
+// AUTO resolves to PRIMAL on a cold start (still every LpSolver::solve_lp
+// call today; MILP node relaxations are the one caller that can reach the
+// warm branch, and only when explicitly opted in -- MilpSolverOptions::
+// warm_start_node_relaxations). That is docs/architecture/LP.md \S2's own
+// decision table, not a preference: it selects dual simplex when a PARENT
+// BASIS is available and dual-feasible for the child, and primal on a
+// cold start. The parent-basis branch lives in Simplex::solve() itself now
+// (set_warm_start_basis/seat_basis below), ahead of both cold paths.
+// Cold-start measurement backs the AUTO-resolves-to-primal default up
+// rather than merely permitting it -- LP.md \S2.1 records dual costing
+// 2.71x the iterations and 3.22x the wall-clock of primal across the
+// Netlib instances that enter it on a cold start.
 //
 // DUAL selects the dual path explicitly (for that measurement, and for the
-// warm-start caller to come). It still falls back to the primal path when
-// the model admits no dual-feasible start -- a cost pointing toward an
+// warm-start caller). It still falls back to the primal path when the
+// model admits no dual-feasible start -- a cost pointing toward an
 // infinite bound, or a free variable with nonzero cost -- or when the dual
 // path's terminal basis fails verification (NUMERICS.md \S5).
 //
-// Dual simplex is also the algorithm a future MILP engine needs: after a
-// branching bound change, the parent's optimal basis stays dual-feasible
-// while primal feasibility is disturbed, which is exactly dual simplex's
-// entry condition (docs/architecture/LP.md \S1).
+// Dual simplex is also the algorithm the MILP engine needs for exactly
+// this reason: after a branching bound change, the parent's optimal basis
+// stays dual-feasible while primal feasibility is disturbed, which is
+// exactly dual simplex's entry condition (docs/architecture/LP.md \S1).
 enum class LpAlgorithm { PRIMAL, DUAL, AUTO };
 
 // Per-stage cost breakdown of the simplex iteration.
@@ -130,6 +133,15 @@ struct LpResult {
     double pricing_seconds = 0.0; // cumulative time in the pricing step alone
     int refactorizations = 0;
     SimplexProfile profile;
+
+    // Set when a warm-start basis was supplied via set_warm_start_basis,
+    // regardless of outcome; used_warm_start narrows that to "and it is
+    // what produced the REPORTED result" (same distinction LpResult
+    // already draws for used_dual_simplex vs dual_iterations on a
+    // fallback -- the attempt happened either way, but only one path's
+    // work is what solve() actually returned).
+    bool warm_start_attempted = false;
+    bool used_warm_start = false;
 };
 
 // Two-phase bounded-variable revised primal simplex (docs/architecture/LP.md).
@@ -163,6 +175,39 @@ struct LpResult {
 // docs/architecture/NUMERICS.md \S6's hard invariant.
 class Simplex {
 public:
+    // AT_ZERO is the resting state of a nonbasic FREE variable (both
+    // bounds infinite, e.g. an MPS 'FR' column): it has no bound to sit
+    // at, so it rests at 0 and is eligible to enter in EITHER direction
+    // depending on the sign of its reduced cost.
+    //
+    // Public (moved from private) so a caller can hold and pass a Basis
+    // (below) without reaching into the engine's other internals -- the
+    // MILP warm-start caller needs exactly this and nothing else.
+    enum class VarStatus : std::uint8_t { AT_LOWER, AT_UPPER, AT_ZERO, BASIC };
+
+    // An exportable basis identity: which augmented column is basic in
+    // each row, and which bound every other column currently rests at.
+    // Deliberately excludes the LU factorization itself -- seat_basis
+    // always refactorizes from basic_columns anyway, since a factorization
+    // valid for the PARENT's bounds is not valid for the CHILD's, so
+    // exporting it would add a second representation with nothing to keep
+    // it in sync for.
+    //
+    // art_sign is included even though every artificial this path seats is
+    // frozen at [0,0] and therefore never MOVES: run_primal_two_phase can
+    // still leave one BASIC at exactly 0 going into phase 2 (a legitimate
+    // degenerate leftover, not an error), and a basic artificial's column
+    // sign is exactly art_sign_[row] -- refactorize() would build the
+    // wrong basis matrix column for that row without it. A fresh Simplex
+    // otherwise defaults every sign to +1, which is only right by
+    // coincidence.
+    struct Basis {
+        std::vector<std::int32_t> basic_columns;  // size n_rows: basis_[i]
+        std::vector<VarStatus> nonbasic_status;   // size n_total; BASIC entries unused
+        std::vector<double> art_sign;             // size n_rows
+        std::int32_t n_struct = 0, n_slack = 0, n_art = 0;
+    };
+
     // Cooperative cancellation for LpMethod::HYBRID. The pointee must
     // outlive the solve. Null (the default) means the solve never aborts.
     void set_cancel_flag(const std::atomic<bool>* flag) { cancel_ = flag; }
@@ -173,21 +218,32 @@ public:
     // claim to have.
     void set_time_budget(double seconds) { time_budget_seconds_ = seconds; }
 
+    // Warm start for the MILP B&B node loop (docs/architecture/LP.md \S1,
+    // \S2; MILP.md's stated prerequisite). `parent` must outlive this
+    // call's solve() -- same lifetime contract as set_cancel_flag. A basis
+    // whose shape (n_struct/n_slack/n_art) does not match this instance is
+    // ignored by solve() rather than misapplied; see LpResult's
+    // warm_start_attempted/used_warm_start for how to tell attempted from
+    // used.
+    void set_warm_start_basis(const Basis* parent) { warm_start_basis_ = parent; }
+
+    // Exports the CURRENT basis_/status_ as a Basis. Meaningful once solve()
+    // has returned OPTIMAL or INFEASIBLE (finalize_result has already
+    // refactorized and re-derived basic values against the terminal basis
+    // by then, so what this reads back is the verified basis, not a
+    // drifted intermediate one).
+    Basis export_basis() const;
+
     explicit Simplex(const LpProblem& problem, PricingBackend backend = PricingBackend::CPU,
                       bool use_ruiz_scaling = true,
                       PricingRule pricing_rule = PricingRule::DEVEX,
                       LpAlgorithm algorithm = LpAlgorithm::AUTO,
-                      ParallelMode parallel_mode = ParallelMode::AUTO);
+                      ParallelMode parallel_mode = ParallelMode::AUTO,
+                      const ScaleFactors* precomputed_scale = nullptr);
 
     LpResult solve();
 
 private:
-    // AT_ZERO is the resting state of a nonbasic FREE variable (both
-    // bounds infinite, e.g. an MPS 'FR' column): it has no bound to sit
-    // at, so it rests at 0 and is eligible to enter in EITHER direction
-    // depending on the sign of its reduced cost.
-    enum class VarStatus : std::uint8_t { AT_LOWER, AT_UPPER, AT_ZERO, BASIC };
-
     void setup_phase1();
     LpStatus run_primal_simplex(bool phase1, int& iterations);
 
@@ -304,6 +360,16 @@ private:
     void apply_pivot_update(std::int32_t leaving_row, const std::vector<double>& dir);
     void finalize_result(LpStatus status, LpResult& result);
 
+    // Seats `parent` into basis_/basic_row_of_/status_/value_, freezing
+    // artificial bounds first (this path is phase-2-only -- it never runs
+    // phase 1), reinstalls phase-2 costs, resets Devex weights, and
+    // refactorizes. Returns false -- never throws past this function -- on
+    // a shape mismatch, a refactorization failure, or the one structural
+    // edge case it refuses rather than guesses at: a nonbasic AT_ZERO
+    // (free) column that the CALLER's (possibly tightened) bounds have
+    // just made finite. The caller falls back to the cold path either way.
+    bool seat_basis(const Basis& parent);
+
     const LpProblem& problem_;
     PricingBackend backend_;
     PricingRule pricing_rule_;
@@ -365,6 +431,9 @@ private:
     // running to completion on hardware the winner no longer needs.
     const std::atomic<bool>* cancel_ = nullptr;
     double time_budget_seconds_ = 0.0;
+    // Set via set_warm_start_basis; consulted once at the top of solve().
+    // Not owned -- same lifetime contract as cancel_.
+    const Basis* warm_start_basis_ = nullptr;
     std::chrono::steady_clock::time_point start_time_{};
     // Polling a clock every iteration would show up in the profile on
     // models whose iterations cost microseconds, so the budget is checked

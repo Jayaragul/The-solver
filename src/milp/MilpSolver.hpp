@@ -48,6 +48,18 @@ struct MilpSolverOptions {
     bool enable_root_cover_cuts = true;
     std::uint32_t max_root_cover_cuts = 64;
     double cut_violation_tolerance = 1e-7;
+
+    // Warm-started dual simplex for node relaxations (docs/architecture/
+    // LP.md \S1/\S2, MILP.md's stated prerequisite): a non-root node
+    // solves its LP relaxation by seating its parent's terminal basis and
+    // repairing primal feasibility, instead of a full cold solve_lp call.
+    // Default false so every existing caller/test/benchmark is unaffected
+    // until a KPI comparison (CLAUDE_OPUS_SOLVER_ROADMAP.md's own rule)
+    // shows a net win on the MIPLIB benchmark; only then does a follow-up
+    // change flip this default. Root and its direct children never warm
+    // start (the root solve goes through solve_lp's presolve, which a
+    // warm basis is not guaranteed to remain valid under).
+    bool warm_start_node_relaxations = false;
 };
 
 struct MilpSolution {
@@ -67,6 +79,14 @@ struct MilpSolution {
     std::uint64_t incumbent_updates = 0;
     std::uint64_t diving_heuristic_lp_relaxations = 0;
     std::uint64_t local_improvement_lp_relaxations = 0;
+
+    // Populated only when warm_start_node_relaxations is true: how many
+    // non-root node relaxations actually took the warm path, and how many
+    // of those had to fall back to a cold solve after a verification
+    // failure. A nonzero fallback count on a small, well-scaled instance
+    // is a signal worth investigating, not an accepted steady state.
+    std::uint64_t warm_started_relaxations = 0;
+    std::uint64_t warm_start_verification_fallbacks = 0;
 };
 
 MilpSolution solve_milp(const MilpProblem& problem,

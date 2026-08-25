@@ -26,6 +26,20 @@ constexpr double kPivotThreshold = 0.01;
 // dense over a long update sequence.
 constexpr double kEtaDropTol = 1e-14;
 
+// Above this fraction of m_, btran()'s reachability DFS is skipped in
+// favor of the plain dense sweep. MEASURED, not assumed:
+// docs/architecture/LP.md \S9 profiled compute_binv_row's unit-vector
+// RHS (pattern size 1, always maximally sparse) and compute_duals's c_B
+// RHS side by side on stocfor3 (16,675 rows). The unit-vector case
+// improved 20% as predicted. c_B did not: 67% SLOWER, because once phase
+// 2 has many structural (nonzero-cost) variables basic, c_B is often not
+// sparse at all, and the DFS then pays its own per-node bookkeeping on
+// top of visiting nearly every node anyway -- strictly more work than
+// the dense sweep it replaced. 0.3 is a deliberately simple, conservative
+// cutoff picked from that one measurement, not a tuned optimum; revisit
+// with more instances if it under- or over-fires in practice.
+constexpr double kHyperSparseDensityThreshold = 0.3;
+
 } // namespace
 
 std::int32_t BasisFactorization::sparse_lsolve(const SparseColumn& column,
@@ -123,6 +137,13 @@ BasisFactorization::factorize(std::int32_t m, const std::vector<SparseColumn>& c
     dfs_node_.assign(um, 0);
     dfs_next_.assign(um, 0);
     mark_.assign(um, -1);
+    // Reserve (not assign): btran() repopulates these from empty via
+    // push_back/assign every call, so only the CAPACITY needs to be
+    // established once here to avoid a reallocation on first use.
+    seed_work_.clear();
+    seed_work_.reserve(um);
+    ut_pattern_work_.clear();
+    ut_pattern_work_.reserve(um);
 
     if (m == 0) {
         result.ok = true;
@@ -253,8 +274,90 @@ BasisFactorization::factorize(std::int32_t m, const std::vector<SparseColumn>& c
         row = pinv_[static_cast<std::size_t>(row)];
     }
 
+    // Row-major transposes for btran()'s hyper-sparse reachability DFS
+    // (reach(), below). Built once here, after the remap above, since
+    // Lt_p_/Lt_i_ must reflect Li_'s FINAL pivot-step-indexed form. Both
+    // L and U are static until the next factorize() call -- only the eta
+    // file changes between refactorizations -- so this is a one-time
+    // O(nnz) cost per refactorization, not a per-solve one.
+    build_transpose(Lp_, Li_, /*diagonal_first=*/true, Lt_p_, Lt_i_);
+    build_transpose(Up_, Ui_, /*diagonal_first=*/false, Ut_p_, Ut_i_);
+    // sparse_lsolve's own calls above just used mark_ values 0..m-1 (one
+    // per pivot step); starting here at m_ rather than 0 guarantees every
+    // future reach() call gets a mark value that cannot collide with one
+    // of THOSE, not just with a previous reach() call's -- exactly the
+    // collision that silently made a genuine seed look "already visited"
+    // before this floor was added.
+    solve_mark_ = m_;
+
     result.ok = true;
     return result;
+}
+
+void BasisFactorization::build_transpose(const std::vector<std::int32_t>& col_ptr,
+                                          const std::vector<std::int32_t>& row_idx,
+                                          bool diagonal_first, std::vector<std::int32_t>& t_ptr,
+                                          std::vector<std::int32_t>& t_idx) {
+    const auto um = static_cast<std::size_t>(m_);
+    t_ptr.assign(um + 1, 0);
+    for (std::int32_t j = 0; j < m_; ++j) {
+        const std::int32_t begin = col_ptr[static_cast<std::size_t>(j)] + (diagonal_first ? 1 : 0);
+        const std::int32_t end = col_ptr[static_cast<std::size_t>(j) + 1] - (diagonal_first ? 0 : 1);
+        for (std::int32_t p = begin; p < end; ++p) {
+            ++t_ptr[static_cast<std::size_t>(row_idx[static_cast<std::size_t>(p)]) + 1];
+        }
+    }
+    for (std::size_t i = 0; i < um; ++i) {
+        t_ptr[i + 1] += t_ptr[i];
+    }
+    t_idx.assign(static_cast<std::size_t>(t_ptr[um]), 0);
+    std::vector<std::int32_t> cursor(t_ptr.begin(), t_ptr.end() - 1);
+    for (std::int32_t j = 0; j < m_; ++j) {
+        const std::int32_t begin = col_ptr[static_cast<std::size_t>(j)] + (diagonal_first ? 1 : 0);
+        const std::int32_t end = col_ptr[static_cast<std::size_t>(j) + 1] - (diagonal_first ? 0 : 1);
+        for (std::int32_t p = begin; p < end; ++p) {
+            const auto row = static_cast<std::size_t>(row_idx[static_cast<std::size_t>(p)]);
+            t_idx[static_cast<std::size_t>(cursor[row]++)] = j;
+        }
+    }
+}
+
+std::int32_t BasisFactorization::reach(const std::vector<std::int32_t>& t_ptr,
+                                        const std::vector<std::int32_t>& t_idx,
+                                        const std::vector<std::int32_t>& seeds,
+                                        std::int32_t mark_value) const {
+    std::int32_t top = m_;
+    for (std::int32_t start : seeds) {
+        if (mark_[static_cast<std::size_t>(start)] == mark_value) continue;
+
+        std::int32_t head = 0;
+        dfs_node_[0] = start;
+
+        while (head >= 0) {
+            const std::int32_t node = dfs_node_[static_cast<std::size_t>(head)];
+
+            if (mark_[static_cast<std::size_t>(node)] != mark_value) {
+                mark_[static_cast<std::size_t>(node)] = mark_value;
+                dfs_next_[static_cast<std::size_t>(head)] = t_ptr[static_cast<std::size_t>(node)];
+            }
+
+            const std::int32_t end = t_ptr[static_cast<std::size_t>(node) + 1];
+            bool descended = false;
+            for (std::int32_t p = dfs_next_[static_cast<std::size_t>(head)]; p < end; ++p) {
+                const std::int32_t child = t_idx[static_cast<std::size_t>(p)];
+                if (mark_[static_cast<std::size_t>(child)] == mark_value) continue;
+                dfs_next_[static_cast<std::size_t>(head)] = p + 1;
+                dfs_node_[static_cast<std::size_t>(++head)] = child;
+                descended = true;
+                break;
+            }
+            if (!descended) {
+                --head;
+                pattern_[static_cast<std::size_t>(--top)] = node;
+            }
+        }
+    }
+    return top;
 }
 
 void BasisFactorization::ftran(std::vector<double>& x) const {
@@ -311,7 +414,10 @@ void BasisFactorization::ftran(std::vector<double>& x) const {
 
 void BasisFactorization::btran(std::vector<double>& x) const {
     // B_k^-T = B_0^-T E_1^-T ... E_k^-T: the etas apply first, newest
-    // first, and each touches only its own pivot component.
+    // first, and each touches only its own pivot component. NOT
+    // sparsified: eta count is bounded by the refactorization cadence
+    // (Simplex::refactorize_every_), not by m_, so it is not the O(m)
+    // cost the DFS below targets.
     for (std::int32_t k = eta_count() - 1; k >= 0; --k) {
         const auto pivot = static_cast<std::size_t>(eta_pivot_[static_cast<std::size_t>(k)]);
         double accumulated = x[pivot];
@@ -324,34 +430,89 @@ void BasisFactorization::btran(std::vector<double>& x) const {
         x[pivot] = accumulated / eta_pivot_value_[static_cast<std::size_t>(k)];
     }
 
-    // B^T = Q U^T L^T P, so B^T y = c becomes U^T L^T (P y) = Q^T c.
+    // B^T = Q U^T L^T P, so B^T y = c becomes U^T L^T (P y) = Q^T c. This
+    // gather is a cheap O(m) copy (no FLOPs) -- not the cost the DFS below
+    // targets, which is the FLOP-heavy accumulation in the two triangular
+    // solves that follow.
     for (std::int32_t k = 0; k < m_; ++k) {
         permuted_[static_cast<std::size_t>(k)] =
             x[static_cast<std::size_t>(q_[static_cast<std::size_t>(k)])];
     }
 
-    for (std::int32_t j = 0; j < m_; ++j) {
+    // HYPER-SPARSE SOLVE (Gilbert & Peierls 1988, applied to the transpose
+    // solve -- docs/architecture/LP.md \S9). permuted_'s nonzero pattern
+    // after the gather is exactly the seed reach() needs: for any j NOT
+    // reachable from it in graph(U^T), the
+    // true z_j in U^T z = permuted_ is proven to be zero, so permuted_[j]
+    // is correctly left exactly as the gather set it (0) without being
+    // touched by the restricted sweep below. seed_work_ is member scratch
+    // (see its declaration) precisely so this repopulation never
+    // allocates -- clear() keeps the reserved buffer.
+    seed_work_.clear();
+    for (std::int32_t k = 0; k < m_; ++k) {
+        if (permuted_[static_cast<std::size_t>(k)] != 0.0) seed_work_.push_back(k);
+    }
+
+    // Density fallback (MEASURED necessary, not a defensive guess -- see
+    // kHyperSparseDensityThreshold's own comment): when the seed is
+    // already large, skip the DFS and process every column in the plain
+    // ascending order the dense sweep always used, by writing the
+    // identity permutation into pattern_ rather than duplicating the
+    // sweep loop below.
+    std::int32_t ut_top;
+    if (seed_work_.size() >
+        static_cast<std::size_t>(kHyperSparseDensityThreshold * static_cast<double>(m_))) {
+        for (std::int32_t k = 0; k < m_; ++k) pattern_[static_cast<std::size_t>(k)] = k;
+        ut_top = 0;
+    } else {
+        ++solve_mark_;
+        ut_top = reach(Ut_p_, Ut_i_, seed_work_, solve_mark_);
+    }
+    for (std::int32_t p = ut_top; p < m_; ++p) {
+        const std::int32_t j = pattern_[static_cast<std::size_t>(p)];
         const std::int32_t diagonal = Up_[static_cast<std::size_t>(j) + 1] - 1;
         double accumulated = permuted_[static_cast<std::size_t>(j)];
-        for (std::int32_t p = Up_[static_cast<std::size_t>(j)]; p < diagonal; ++p) {
-            accumulated -= Ux_[static_cast<std::size_t>(p)] *
-                            permuted_[static_cast<std::size_t>(Ui_[static_cast<std::size_t>(p)])];
+        for (std::int32_t k = Up_[static_cast<std::size_t>(j)]; k < diagonal; ++k) {
+            accumulated -= Ux_[static_cast<std::size_t>(k)] *
+                            permuted_[static_cast<std::size_t>(Ui_[static_cast<std::size_t>(k)])];
         }
         permuted_[static_cast<std::size_t>(j)] =
             accumulated / Ux_[static_cast<std::size_t>(diagonal)];
     }
 
-    for (std::int32_t j = m_ - 1; j >= 0; --j) {
+    // Same argument for the L^T phase: pattern_[ut_top..m_-1] is exactly
+    // the nonzero pattern of the U^T solve's result (the theorem again --
+    // not an approximation), which is the correct seed for L^T w = z. Same
+    // density fallback as above, in the descending order the dense L^T
+    // sweep always used.
+    std::int32_t lt_top;
+    if (m_ - ut_top >
+        static_cast<std::int32_t>(kHyperSparseDensityThreshold * static_cast<double>(m_))) {
+        for (std::int32_t k = 0; k < m_; ++k) pattern_[static_cast<std::size_t>(k)] = m_ - 1 - k;
+        lt_top = 0;
+    } else {
+        // ut_pattern_work_ is member scratch for the same reason as
+        // seed_work_ above -- assign() from an iterator range reuses the
+        // reserved buffer rather than allocating a new one.
+        ut_pattern_work_.assign(pattern_.begin() + ut_top, pattern_.begin() + m_);
+        ++solve_mark_;
+        lt_top = reach(Lt_p_, Lt_i_, ut_pattern_work_, solve_mark_);
+    }
+    for (std::int32_t p = lt_top; p < m_; ++p) {
+        const std::int32_t j = pattern_[static_cast<std::size_t>(p)];
         double accumulated = permuted_[static_cast<std::size_t>(j)];
         const std::int32_t begin = Lp_[static_cast<std::size_t>(j)] + 1;
         const std::int32_t end = Lp_[static_cast<std::size_t>(j) + 1];
-        for (std::int32_t p = begin; p < end; ++p) {
-            accumulated -= Lx_[static_cast<std::size_t>(p)] *
-                            permuted_[static_cast<std::size_t>(Li_[static_cast<std::size_t>(p)])];
+        for (std::int32_t k = begin; k < end; ++k) {
+            accumulated -= Lx_[static_cast<std::size_t>(k)] *
+                            permuted_[static_cast<std::size_t>(Li_[static_cast<std::size_t>(k)])];
         }
         permuted_[static_cast<std::size_t>(j)] = accumulated;
     }
 
+    // Scatter: a cheap O(m) copy (no FLOPs), exactly as before -- correct
+    // regardless of pattern, since every position outside it is already
+    // exactly zero in permuted_.
     for (std::int32_t i = 0; i < m_; ++i) {
         x[static_cast<std::size_t>(i)] =
             permuted_[static_cast<std::size_t>(pinv_[static_cast<std::size_t>(i)])];

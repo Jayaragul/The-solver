@@ -103,7 +103,8 @@ double vector_inf_norm(const std::vector<double>& v) {
 } // namespace
 
 Simplex::Simplex(const LpProblem& problem, PricingBackend backend, bool use_ruiz_scaling,
-                  PricingRule pricing_rule, LpAlgorithm algorithm, ParallelMode parallel_mode)
+                  PricingRule pricing_rule, LpAlgorithm algorithm, ParallelMode parallel_mode,
+                  const ScaleFactors* precomputed_scale)
     : problem_(problem),
       backend_(backend),
       pricing_rule_(pricing_rule),
@@ -115,8 +116,19 @@ Simplex::Simplex(const LpProblem& problem, PricingBackend backend, bool use_ruiz
     n_art_ = n_rows_;
     n_total_ = n_struct_ + n_slack_ + n_art_;
 
-    scale_ = use_ruiz_scaling ? compute_ruiz_scaling(problem_.A)
-                              : ScaleFactors::identity(n_rows_, n_struct_);
+    // A caller re-solving the SAME matrix across many calls (the MILP B&B
+    // node loop, where only bounds change between siblings) supplies its
+    // own once-computed factors here rather than paying Ruiz's iterative
+    // equilibration loop again on every node -- that cost is exactly what
+    // warm-starting exists to avoid. Every other caller passes nullptr and
+    // this is byte-for-byte the same construction as before this parameter
+    // existed.
+    if (use_ruiz_scaling && precomputed_scale != nullptr) {
+        scale_ = *precomputed_scale;
+    } else {
+        scale_ = use_ruiz_scaling ? compute_ruiz_scaling(problem_.A)
+                                  : ScaleFactors::identity(n_rows_, n_struct_);
+    }
     A_scaled_ = apply_ruiz_scaling(problem_.A, scale_);
     A_csc_ = csr_to_csc(A_scaled_);
 
@@ -417,6 +429,115 @@ bool Simplex::setup_dual_feasible_start() {
     }
 
     refactorize();
+    recompute_basic_values();
+    return true;
+}
+
+Simplex::Basis Simplex::export_basis() const {
+    Basis basis;
+    basis.n_struct = n_struct_;
+    basis.n_slack = n_slack_;
+    basis.n_art = n_art_;
+    basis.basic_columns = basis_;
+    basis.nonbasic_status = status_; // BASIC-marked entries are present but unused by seat_basis
+    basis.art_sign = art_sign_;
+    return basis;
+}
+
+// See Simplex.hpp's Basis/seat_basis doc comments for the shape this seats
+// and why. This is the phase-2-only counterpart of setup_dual_feasible_start
+// above: instead of deriving a dual-feasible all-slack basis from the
+// costs, it installs a CALLER-SUPPLIED basis outright and lets the caller
+// (solve()) run dual simplex from there to repair whatever primal
+// infeasibility the bound change introduced. Dual feasibility itself needs
+// no check here: reduced costs depend only on cost_ and basis_, and
+// neither changes between a parent and a bound-only child, so a
+// dual-feasible parent basis is dual-feasible for the child by
+// construction -- the textbook argument this whole feature rests on.
+bool Simplex::seat_basis(const Basis& parent) {
+    if (parent.n_struct != n_struct_ || parent.n_slack != n_slack_ || parent.n_art != n_art_ ||
+        parent.basic_columns.size() != static_cast<std::size_t>(n_rows_) ||
+        parent.nonbasic_status.size() != static_cast<std::size_t>(n_total_) ||
+        parent.art_sign.size() != static_cast<std::size_t>(n_rows_)) {
+        return false;
+    }
+
+    // Freeze every artificial to [0,0] FIRST -- this path never runs phase
+    // 1, so none may be free to move. Restoring art_sign_ here (rather
+    // than leaving the fresh instance's all-+1 default) matters exactly
+    // when a basic artificial is among parent.basic_columns below: its
+    // column sign is what refactorize() builds the basis matrix from, and
+    // a wrong sign would silently factorize the wrong matrix rather than
+    // fail loudly.
+    for (std::int32_t i = 0; i < n_art_; ++i) {
+        const auto a = static_cast<std::size_t>(n_struct_ + n_slack_ + i);
+        lower_[a] = 0.0;
+        upper_[a] = 0.0;
+    }
+    art_sign_ = parent.art_sign;
+
+    std::fill(basic_row_of_.begin(), basic_row_of_.end(), -1);
+    for (std::int32_t i = 0; i < n_rows_; ++i) {
+        const auto ii = static_cast<std::size_t>(i);
+        const std::int32_t col = parent.basic_columns[ii];
+        if (col < 0 || col >= n_total_) return false;
+        basis_[ii] = col;
+        basic_row_of_[static_cast<std::size_t>(col)] = i;
+        status_[static_cast<std::size_t>(col)] = VarStatus::BASIC;
+    }
+
+    for (std::int32_t v = 0; v < n_total_; ++v) {
+        const auto vv = static_cast<std::size_t>(v);
+        if (basic_row_of_[vv] >= 0) continue; // seated as basic above
+        const VarStatus st = parent.nonbasic_status[vv];
+        switch (st) {
+            case VarStatus::AT_LOWER:
+                if (!std::isfinite(lower_[vv])) return false;
+                value_[vv] = lower_[vv];
+                break;
+            case VarStatus::AT_UPPER:
+                if (!std::isfinite(upper_[vv])) return false;
+                value_[vv] = upper_[vv];
+                break;
+            case VarStatus::AT_ZERO:
+                // The parent rested this column free. Refuse rather than
+                // guess if THIS instance's bounds (tightened relative to
+                // the parent's) have since given it a finite side --
+                // seating it at 0 could silently rest it off the new
+                // bound. In practice this can only be the branch variable
+                // itself, and only if it was declared free, which
+                // validate_milp_problem does not forbid but which is rare.
+                if (std::isfinite(lower_[vv]) || std::isfinite(upper_[vv])) return false;
+                value_[vv] = 0.0;
+                break;
+            case VarStatus::BASIC:
+                // parent.nonbasic_status disagreed with parent.basic_columns
+                // about this column -- an inconsistent Basis, not a valid
+                // one to seat.
+                return false;
+        }
+        status_[vv] = st;
+    }
+
+    for (std::int32_t j = 0; j < n_struct_; ++j) {
+        const auto jj = static_cast<std::size_t>(j);
+        cost_[jj] = problem_.obj[jj] * scale_.col_scale[jj];
+    }
+    for (std::int32_t i = 0; i < n_slack_ + n_art_; ++i) {
+        cost_[static_cast<std::size_t>(n_struct_ + i)] = 0.0;
+    }
+    sync_gpu_phase();
+    // The parent's Devex weights approximate edge norms with respect to a
+    // basis this instance is about to move away from immediately (the
+    // first dual pivot changes it) -- restarting is cheap and avoids
+    // carrying forward an approximation with no argument for relevance.
+    reset_devex_weights();
+
+    try {
+        refactorize();
+    } catch (const std::exception&) {
+        return false;
+    }
     recompute_basic_values();
     return true;
 }
@@ -1354,20 +1475,17 @@ LpResult Simplex::solve() {
     LpResult result;
     try {
         // ALGORITHM SELECTION (docs/architecture/LP.md \S2's decision
-        // table; NUMERICS.md \S5's fallback chain: dual -> primal ->
-        // reported failure).
+        // table; NUMERICS.md \S5's fallback chain, now warm -> dual ->
+        // primal -> reported failure).
         //
-        // AUTO resolves to PRIMAL here, and that is the architecture's own
-        // rule rather than a preference: LP.md \S2 selects dual simplex
-        // when a PARENT BASIS is available and dual-feasible for the child
-        // -- the B&B re-solve shape this engine exists to serve -- and
-        // primal simplex on a cold start, which is every call today because
-        // no warm-start entry point exists yet. When one is added, AUTO
-        // gains the parent-basis branch; until then, resolving AUTO to dual
-        // would be selecting an algorithm outside the conditions the
-        // decision table justifies it under.
+        // Absent a warm-started parent basis (the block just below), AUTO
+        // resolves to PRIMAL on a cold start, and that is the
+        // architecture's own rule rather than a preference: LP.md \S2
+        // selects dual simplex when a PARENT BASIS is available and
+        // dual-feasible for the child -- the B&B re-solve shape this
+        // engine exists to serve -- and primal simplex on a cold start.
         //
-        // EXPERIMENTAL RESULT supporting that rule on cold starts (Netlib,
+        // EXPERIMENTAL RESULT supporting that cold-start rule (Netlib,
         // 89 instances up to 2600 rows, same tolerances, dual vs primal):
         // total time +153%, total iterations +65.5%. The spread is what
         // matters more than the aggregate -- d6cube 5.15s -> 0.22s (31,033
@@ -1376,7 +1494,46 @@ LpResult Simplex::solve() {
         // unpredictable, which on a cold start buys nothing, since there is
         // no warm basis whose dual feasibility would make it the cheap
         // option. DUAL remains selectable for that measurement and for the
-        // warm-start path to come.
+        // warm-start path below.
+        //
+        // WARM START (docs/architecture/LP.md \S1/\S2's long-stated missing
+        // piece; MILP.md's prerequisite -- every B&B node is a warm child
+        // solve). A caller-supplied parent basis gets first refusal, ahead
+        // of both the cold paths below: if it seats and the dual-simplex
+        // repair that follows clears the SAME original-space verification
+        // gate every other path is held to, that is the reported result.
+        // LpAlgorithm::PRIMAL opts out entirely -- that value's existing
+        // meaning is "pin the primal path," and honoring it here means not
+        // silently overriding an explicit caller choice.
+        if (warm_start_basis_ != nullptr && algorithm_ != LpAlgorithm::PRIMAL &&
+            warm_start_basis_->n_struct == n_struct_ && warm_start_basis_->n_slack == n_slack_ &&
+            warm_start_basis_->n_art == n_art_) {
+            result.warm_start_attempted = true;
+            if (seat_basis(*warm_start_basis_)) {
+                int d_iters = 0;
+                const LpStatus sd = run_dual_simplex(d_iters);
+                result.dual_iterations = d_iters;
+                result.used_dual_simplex = true;
+                result.used_warm_start = true;
+
+                if (sd == LpStatus::OPTIMAL || sd == LpStatus::INFEASIBLE) {
+                    finalize_result(sd, result);
+                    if (result.status != LpStatus::NUMERICAL_FAILURE) {
+                        return result;
+                    }
+                }
+
+                // The warm path did not produce a verified result -- fall
+                // back exactly as the existing cold-dual branch below
+                // does. The flags that say WHICH path produced the
+                // REPORTED result flip back so a benchmark cannot
+                // misattribute it; dual_iterations is left as-is because
+                // that work genuinely happened.
+                result.used_dual_simplex = false;
+                result.used_warm_start = false;
+            }
+        }
+
         if (algorithm_ == LpAlgorithm::DUAL && setup_dual_feasible_start()) {
             int d_iters = 0;
             const LpStatus sd = run_dual_simplex(d_iters);
