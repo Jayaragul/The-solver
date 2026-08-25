@@ -342,7 +342,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         ? (int)o->iteration_limit : 100000;
     const int check_every = 20;
     double *x = NULL, *x_new = NULL, *x_bar = NULL, *y = NULL, *y_new = NULL;
-    double *activity = NULL, *gradient = NULL, *qx = NULL;
+    double *activity = NULL, *gradient = NULL, *qx = NULL, *qdiag = NULL;
     double *tau_vec = NULL, *sigma_vec = NULL;
     double anorm, qnorm, start;
     int iteration, converged = 0;
@@ -382,11 +382,20 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     activity = (double *)calloc((size_t)r, sizeof(double));
     gradient = (double *)calloc((size_t)n, sizeof(double));
     if (m->Q) qx = (double *)calloc((size_t)n, sizeof(double));
+    if (m->Q) qdiag = (double *)calloc((size_t)n, sizeof(double));
     tau_vec = (double *)calloc((size_t)n, sizeof(double));
     sigma_vec = (double *)calloc((size_t)r, sizeof(double));
     if ((!x && n) || (!x_new && n) || (!x_bar && n) || (!y && r) || (!y_new && r) ||
-        (!activity && r) || (!gradient && n) || (m->Q && !qx) ||
+        (!activity && r) || (!gradient && n) || (m->Q && (!qx || !qdiag)) ||
         (!tau_vec && n) || (!sigma_vec && r)) goto memory_failure;
+    {
+        int diagonal = m->Q != NULL, j, p;
+        if (m->Q) for (j = 0; j < n; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p) {
+            if (m->Q->i[p] != j) { diagonal = 0; break; }
+            qdiag[j] += m->Q->x[p];
+        }
+        if (!diagonal) { free(qdiag); qdiag = NULL; }
+    }
     for (iteration = 0; iteration < n; ++iteration) x[iteration] = x_bar[iteration] = clamp_value(0.0, m->clow[iteration], m->cupp[iteration]);
 
     anorm = matrix_norm_bound(&m->A);
@@ -426,7 +435,16 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         csc_tmv(&m->A, y_new, gradient);
         if (m->Q) csc_mv(m->Q, x, qx);
         for (j = 0; j < n; ++j) {
-            x_new[j] = clamp_value(x[j] - tau_vec[j] * (m->c[j] + (m->Q ? qx[j] : 0.0) + gradient[j]), m->clow[j], m->cupp[j]);
+            if (qdiag) {
+                /* Implicit diagonal-Q prox: this is more stable than an
+                   explicit Qx step when a QP Hessian is badly scaled. */
+                x_new[j] = (x[j] - tau_vec[j] * (m->c[j] + gradient[j])) /
+                           (1.0 + tau_vec[j] * qdiag[j]);
+            } else {
+                x_new[j] = x[j] - tau_vec[j] *
+                           (m->c[j] + (m->Q ? qx[j] : 0.0) + gradient[j]);
+            }
+            x_new[j] = clamp_value(x_new[j], m->clow[j], m->cupp[j]);
             x_bar[j] = 2.0 * x_new[j] - x[j];
         }
         memcpy(x, x_new, (size_t)n * sizeof(double));
@@ -478,12 +496,12 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         s->result = o->time_limit > 0.0 && s->solve_seconds >= o->time_limit
             ? SK_RESULT_TIME_LIMIT : SK_RESULT_ITERATION_LIMIT;
     }
-    free(x_new); free(x_bar); free(y_new); free(gradient); free(qx); free(tau_vec); free(sigma_vec);
+    free(x_new); free(x_bar); free(y_new); free(gradient); free(qx); free(qdiag); free(tau_vec); free(sigma_vec);
     return SK_OK;
 
 memory_failure:
     free(x); free(x_new); free(x_bar); free(y); free(y_new); free(activity); free(gradient); free(qx);
-    free(tau_vec); free(sigma_vec);
+    free(qdiag); free(tau_vec); free(sigma_vec);
     return SK_ERR_MEMORY;
 }
 
