@@ -9,6 +9,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#define SK_BENCH_COMPILER "MSVC"
+#elif defined(__clang__)
+#define SK_BENCH_COMPILER "Clang"
+#elif defined(__GNUC__)
+#define SK_BENCH_COMPILER "GCC"
+#else
+#define SK_BENCH_COMPILER "unknown"
+#endif
+
+#if defined(_M_X64) || defined(__x86_64__)
+#define SK_BENCH_MACHINE "x86_64"
+#elif defined(_M_ARM64) || defined(__aarch64__)
+#define SK_BENCH_MACHINE "aarch64"
+#else
+#define SK_BENCH_MACHINE "unknown"
+#endif
+
 static void usage(void)
 {
     fprintf(stderr, "usage: sk_bench [options] file1.mps [file2.qps ...]\n"
@@ -85,6 +103,9 @@ int main(int argc, char **argv)
         }
         if (s.x) sk_verify(&m, &s);
         fputs("{\"file\":", stdout); json_string(argv[i]);
+        fputs(",\"solver_version\":", stdout); json_string(sk_version());
+        fputs(",\"compiler\":", stdout); json_string(SK_BENCH_COMPILER);
+        fputs(",\"machine\":", stdout); json_string(SK_BENCH_MACHINE);
         printf(",\"rows\":%d,\"cols\":%d,\"nnz\":%d,\"integers\":%d,\"quadratic\":%s,\"status\":\"%s\",\"objective\":",
                m.nrow, m.ncol, m.A.p[m.ncol], integers, m.Q ? "true" : "false", sk_result_name(s.result));
         json_number(s.objective); fputs(",\"dual_bound\":", stdout); json_number(s.dual_bound);

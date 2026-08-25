@@ -92,7 +92,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native sparse-QP smoke test | QPS parse → constrained QP solve → independent quadratic objective check | passed |
 | Native general-QP active-set smoke | off-diagonal convex Hessian with an active inequality; exact KKT objective `-2.25` | passed |
 | Native QP Hessian guard smoke | deliberately nonsymmetric Q is rejected as unsupported | passed |
-| Native JSONL benchmark harness | one command dispatches LP/QP/MILP files and reports status, residuals, bounds, iterations/nodes, and timing; smoke covers all three | passed |
+| Native JSONL benchmark harness | one command dispatches LP/QP/MILP files and reports provenance, status, residuals, bounds, iterations/nodes, and timing; smoke covers all three | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
