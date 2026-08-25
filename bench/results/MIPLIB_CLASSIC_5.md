@@ -14,7 +14,8 @@ build\cmake-cuda\sk_mip.exe bench\data\miplib\mps\<name>.mps \
   --time-limit 20 --quiet
 ```
 
-The run uses the native revised-simplex relaxation, bound propagation,
+The run uses the native revised-simplex relaxation, row and incumbent-objective
+bound propagation,
 pseudocost branching, best-bound backtracking, and the exact MILP gap test.
 An `optimal` row means the native dual bound closed the gap; a time limit is
 reported as a limit and is not treated as a failure or an optimality claim.
@@ -23,9 +24,9 @@ reported as a limit and is not treated as a failure or an optimality claim.
 
 | Instance | Rows | Cols | Integer vars | Status | Objective | Dual bound | Nodes | LP solves | Seconds |
 |---|---:|---:|---:|---|---:|---:|---:|---:|---:|
-| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 796 | 807 | 0.083547 |
+| p0033 | 16 | 33 | 33 | optimal | 3089 | 3089 | 687 | 698 | 0.069364 |
 | bell5 | 91 | 104 | 58 | time limit | — | 8608417.94651 | 15871 | 16112 | 20.018210 |
-| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 14116 | 14226 | 3.490471 |
+| stein27 | 118 | 27 | 27 | optimal | 18 | 18 | 14074 | 14184 | 3.528628 |
 | flugpl | 18 | 18 | 11 | optimal | 1201500 | 1201500 | 374 | 381 | 0.031429 |
 | set1ch | 492 | 712 | 240 | time limit | — | 35118.1098485 | 631 | 643 | 20.000373 |
 

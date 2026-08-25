@@ -235,6 +235,42 @@ static int milp_propagate(milp *M, int rounds)
                 if (M->nlow[j] > M->nupp[j] + 1e-9) { ok = 0; break; }
             }
         }
+
+        /* Incumbent-driven objective propagation.  For a minimization model,
+           if every other variable has a finite best contribution, the
+           incumbent immediately bounds the contribution of this variable.
+           This is safe node presolve (not a heuristic cutoff) and is useful
+           on knapsack-like MIPLIB rows where feasibility propagation alone is
+           weak. */
+        if (ok && M->have_incumbent) {
+            double obj_min = m->objshift;
+            int finite = 1;
+            for (j = 0; j < m->ncol; ++j) {
+                double term;
+                if (m->c[j] >= 0.0) {
+                    if (SK_IS_NEG_INF(M->nlow[j])) { finite = 0; break; }
+                    term = m->c[j] * M->nlow[j];
+                } else {
+                    if (SK_IS_INF(M->nupp[j])) { finite = 0; break; }
+                    term = m->c[j] * M->nupp[j];
+                }
+                if (!isfinite(term) || !isfinite(obj_min += term)) { finite = 0; break; }
+            }
+            if (finite) for (j = 0; j < m->ncol && ok; ++j) {
+                double base, bound;
+                if (m->c[j] == 0.0) continue;
+                base = (m->c[j] >= 0.0) ? m->c[j] * M->nlow[j] : m->c[j] * M->nupp[j];
+                bound = (M->incumbent_obj - M->gap_abs - (obj_min - base)) / m->c[j];
+                if (m->c[j] > 0.0 && bound < M->nupp[j] - 1e-9) {
+                    if (is_int_var(m, j)) bound = floor(bound + 1e-7);
+                    M->nupp[j] = bound; changed = 1; M->st.propagations++;
+                } else if (m->c[j] < 0.0 && bound > M->nlow[j] + 1e-9) {
+                    if (is_int_var(m, j)) bound = ceil(bound - 1e-7);
+                    M->nlow[j] = bound; changed = 1; M->st.propagations++;
+                }
+                if (M->nlow[j] > M->nupp[j] + 1e-9) { ok = 0; break; }
+            }
+        }
     }
 
 done:

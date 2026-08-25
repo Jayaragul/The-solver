@@ -33,7 +33,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   General sparse-Hessian QPS input is handled by the native CPU path, not CUDA.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
-  pseudocost branching, rounding heuristics, and best-bound backtracking.
+  pseudocost branching, incumbent-driven objective bound propagation, rounding
+  heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
   Cuts, conflict analysis, parallel search, and MIQP remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
@@ -69,7 +70,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native sparse-QP smoke test | QPS parse → constrained QP solve → independent quadratic objective check | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
-| Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap | passed |
+| Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
 | Full CMake test suite | 18/18 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
