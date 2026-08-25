@@ -1,0 +1,162 @@
+#include "io/MpsReader.hpp"
+#include "milp/MilpProblem.hpp"
+#include "milp/MilpSolver.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+struct Reference {
+    std::string status;
+    double objective = 0.0;
+};
+
+std::unordered_map<std::string, Reference> read_solution_file(const fs::path& path) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("cannot open solution file: " + path.string());
+
+    std::unordered_map<std::string, Reference> references;
+    std::string line;
+    while (std::getline(input, line)) {
+        std::istringstream row(line);
+        std::string marker;
+        std::string name;
+        if (!(row >> marker >> name)) continue;
+        if (marker == "=inf=") {
+            references[name] = {"INFEASIBLE", 0.0};
+        } else if (marker == "=opt=" || marker == "=best=") {
+            double objective = 0.0;
+            if (row >> objective) references[name] = {marker == "=opt=" ? "OPTIMAL" : "BEST", objective};
+        }
+    }
+    return references;
+}
+
+const char* status_name(sihps::MilpStatus status) {
+    switch (status) {
+    case sihps::MilpStatus::OPTIMAL: return "OPTIMAL";
+    case sihps::MilpStatus::INFEASIBLE: return "INFEASIBLE";
+    case sihps::MilpStatus::UNBOUNDED: return "UNBOUNDED";
+    case sihps::MilpStatus::UNBOUNDED_RELAXATION: return "UNBOUNDED_RELAXATION";
+    case sihps::MilpStatus::NODE_LIMIT: return "NODE_LIMIT";
+    case sihps::MilpStatus::TIME_LIMIT: return "TIME_LIMIT";
+    case sihps::MilpStatus::NUMERICAL_FAILURE: return "NUMERICAL_FAILURE";
+    }
+    return "UNKNOWN";
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const fs::path instance_dir = argc > 1 ? argv[1] : "data/miplib2017_small";
+    const fs::path solution_path = argc > 2 ? argv[2] : instance_dir / "miplib2017-v36.solu";
+    const std::string selected_instance = argc > 3 ? argv[3] : "";
+
+    std::cout << std::unitbuf;
+
+    const auto references = read_solution_file(solution_path);
+    std::vector<fs::path> instances;
+    for (const auto& entry : fs::directory_iterator(instance_dir)) {
+        if (entry.path().extension() == ".mps" &&
+            (selected_instance.empty() || entry.path().stem().string() == selected_instance)) {
+            instances.push_back(entry.path());
+        }
+    }
+    std::sort(instances.begin(), instances.end());
+
+    std::size_t exact_matches = 0;
+    std::size_t incumbent_matches = 0;
+    std::size_t certified_results = 0;
+    std::size_t mismatches = 0;
+    std::size_t limits = 0;
+    constexpr double kObjectiveTolerance = 1e-5;
+
+    std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
+              << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
+              << std::setw(12) << "abs_error" << std::setw(10) << "nodes" << std::setw(10)
+              << "LPs" << std::setw(10) << "seconds" << "  verdict\n";
+    std::cout << std::string(130, '-') << '\n';
+
+    for (const fs::path& instance : instances) {
+        const std::string name = instance.stem().string();
+        const auto reference_it = references.find(name);
+        if (reference_it == references.end()) {
+            std::cout << name << " missing reference\n";
+            ++mismatches;
+            continue;
+        }
+
+        try {
+            const auto model = sihps::read_mps_file(instance.string());
+            const auto problem = sihps::milp_problem_from_mps(model);
+            sihps::MilpSolverOptions options;
+            options.time_limit_seconds = 60.0;
+            options.use_rounding_heuristic = true;
+
+            const auto start = std::chrono::steady_clock::now();
+            const auto result = sihps::solve_milp(problem, options);
+            const double seconds =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+
+            const Reference& reference = reference_it->second;
+            const bool status_match =
+                (reference.status == "OPTIMAL" && result.status == sihps::MilpStatus::OPTIMAL) ||
+                (reference.status == "INFEASIBLE" && result.status == sihps::MilpStatus::INFEASIBLE);
+            const double error = result.has_incumbent
+                                     ? std::fabs(result.objective_value - reference.objective)
+                                     : std::numeric_limits<double>::infinity();
+            const bool objective_match = reference.status == "INFEASIBLE" ||
+                                         (result.has_incumbent && error <= kObjectiveTolerance);
+            const bool exact = status_match && objective_match;
+            if (objective_match && reference.status == "OPTIMAL") ++incumbent_matches;
+            if (result.status == sihps::MilpStatus::OPTIMAL ||
+                result.status == sihps::MilpStatus::INFEASIBLE) {
+                ++certified_results;
+            } else {
+                ++limits;
+            }
+            if (exact) ++exact_matches;
+            else ++mismatches;
+
+            const char* verdict = exact
+                                      ? "EXACT"
+                                      : (reference.status == "BEST"
+                                             ? "NOT_CERTIFIED"
+                                             : (objective_match ? "INCUMBENT_ONLY" : "MISMATCH"));
+            std::cout << std::left << std::setw(18) << name << std::right << std::setw(12)
+                      << status_name(result.status) << std::setw(18) << std::setprecision(12)
+                      << (result.has_incumbent ? result.objective_value : 0.0) << std::setw(18)
+                      << (reference.status == "INFEASIBLE" ? 0.0 : reference.objective)
+                      << std::setw(12) << (std::isfinite(error) ? error : 0.0) << std::setw(10)
+                      << result.nodes_processed << std::setw(10) << result.lp_relaxations
+                      << std::setw(10) << std::fixed << std::setprecision(3) << seconds << std::right
+                      << "  " << verdict
+                      << '\n';
+        } catch (const std::exception& error) {
+            ++mismatches;
+            std::cout << std::left << std::setw(18) << name << " ERROR " << error.what() << '\n';
+        }
+    }
+
+    std::cout << "\nExact reference matches: " << exact_matches << '/' << instances.size() << '\n';
+    std::cout << "Optimal-objective incumbent matches: " << incumbent_matches << '/'
+              << instances.size() << '\n';
+    std::cout << "Certified solver results: " << certified_results << '/' << instances.size() << '\n';
+    std::cout << "Time/node-limit results: " << limits << '/' << instances.size() << '\n';
+    std::cout << "Mismatches or non-exact results: " << mismatches << '/' << instances.size() << '\n';
+    return mismatches == 0 ? 0 : 1;
+}

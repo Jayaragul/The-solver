@@ -73,3 +73,7 @@ sihps_set_warnings(validate_crossmethod)
 add_executable(bench_milp bench_milp.cpp)
 target_link_libraries(bench_milp PRIVATE sihps_core)
 sihps_set_warnings(bench_milp)
+
+add_executable(bench_miplib bench_miplib.cpp)
+target_link_libraries(bench_miplib PRIVATE sihps_core)
+sihps_set_warnings(bench_miplib)
