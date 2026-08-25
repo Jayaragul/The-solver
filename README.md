@@ -85,6 +85,18 @@ build\native\sankhya_pdhg.exe bench\smoke\unit_lp.mps --iterations 5000 --tolera
 
 The verified smoke result is `x[X]=1`, objective `1`, and zero primal violation.
 
+The native CPU CLI loads MPS/QPS and exercises the public LP/QP/MILP dispatch:
+
+```text
+build\native\sankhya_solve.exe bench\smoke\unit_lp.mps --iterations 200000
+```
+
+It prints primal and MIP-gap diagnostics. On QPs it also reports KKT residuals;
+on LP/MILP the current PDHG path reports `lp_pdhg_primal_only`, not an LP dual
+certificate. A `gap_limit` MILP status is a feasible incumbent from the current
+first-order branch-and-bound baseline, not a commercial-solver-grade optimality
+proof.
+
 The first external benchmark record is [AFIRO](bench/results/AFIRO.md). Its
 default path uses a deterministic CPU power-iteration estimate of `||A||_2` to
 select the CUDA PDHG primal/dual steps. It remains an approximate solution with

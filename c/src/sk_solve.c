@@ -123,6 +123,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     double *activity = NULL, *gradient = NULL, *qx = NULL;
     double tau, sigma, anorm, qnorm, start;
     int iteration, converged = 0;
+    double dual_step = INFINITY;
 
     if (!m || !s || n < 0 || r < 0 || !m->c || !m->clow || !m->cupp ||
         !m->rlow || !m->rupp || !m->A.p || (m->Q && !m->Q->p)) return SK_ERR_ARG;
@@ -162,6 +163,8 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             const double trial = y[j] + sigma * activity[j];
             y_new[j] = trial - sigma * clamp_value(trial / sigma, m->rlow[j], m->rupp[j]);
         }
+        dual_step = 0.0;
+        for (j = 0; j < r; ++j) if (fabs(y_new[j] - y[j]) > dual_step) dual_step = fabs(y_new[j] - y[j]);
         csc_tmv(&m->A, y_new, gradient);
         if (m->Q) csc_mv(m->Q, x, qx);
         for (j = 0; j < n; ++j) {
@@ -181,7 +184,8 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             }
             /* x_bar = 2*x - x_old, hence |x-x_old| = |x_bar-x|. */
             for (j = 0; j < n; ++j) if (fabs(x_bar[j] - x[j]) > step) step = fabs(x_bar[j] - x[j]);
-            if (row_violation(m, activity) <= o->primal_tol && step <= o->primal_tol * scale) { converged = 1; break; }
+            if (row_violation(m, activity) <= o->primal_tol && step <= o->primal_tol * scale &&
+                dual_step <= o->dual_tol * (1.0 + anorm)) { converged = 1; break; }
         }
     }
 

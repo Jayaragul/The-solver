@@ -15,6 +15,9 @@ add_library(sankhya_core STATIC
 target_include_directories(sankhya_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/c/include)
 target_compile_features(sankhya_core PUBLIC c_std_11)
 
+add_executable(sankhya_solve apps/sankhya_solve.c)
+target_link_libraries(sankhya_solve PRIVATE sankhya_core)
+
 # libm is a separate object on Unix toolchains; MSVC folds it into the CRT.
 find_library(SANKHYA_M_LIBRARY m)
 if(SANKHYA_M_LIBRARY)

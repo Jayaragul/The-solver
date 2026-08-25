@@ -2,7 +2,7 @@
  * primal-dual certificate checker.
  *
  * The checker deliberately shares no state with the solvers.  It recomputes
- * A*x and c - A'y from the original model and re-derives every residual, so a
+ * A*x and c + A'y from the original model and re-derives every residual, so a
  * bug inside the simplex cannot make an infeasible point look optimal.
  */
 #include "sankhya.h"
@@ -348,9 +348,9 @@ sk_status sk_read_mps(const char *path, sk_model *m)
 /* Recomputes every residual from the model alone.
  *
  * Primal:  max violation of rlow <= Ax <= rupp and clow <= x <= cupp.
- * Dual:    with rc = c - A'y, the sign conditions
- *              x_j at clow  =>  rc_j >= 0        r_i at rlow  =>  y_i >= 0
- *              x_j at cupp  =>  rc_j <= 0        r_i at rupp  =>  y_i <= 0
+ * Dual:    with rc = c + A'y, the sign conditions
+ *              x_j at clow  =>  rc_j >= 0        r_i at rlow  =>  y_i <= 0
+ *              x_j at cupp  =>  rc_j <= 0        r_i at rupp  =>  y_i >= 0
  *              x_j interior =>  rc_j == 0        r_i interior =>  y_i == 0
  *          A multiplier whose sign points at an infinite bound is itself a
  *          dual infeasibility, and is reported as such rather than ignored.
@@ -400,7 +400,7 @@ sk_status sk_verify(const sk_model *m, sk_solution *s)
     if (s->y) {
         for (j = 0; j < m->ncol; j++) {
             double r = m->c[j] + (m->Q ? qx[j] : 0.0);
-            for (p = m->A.p[j]; p < m->A.p[j + 1]; p++) r -= m->A.x[p] * s->y[m->A.i[p]];
+            for (p = m->A.p[j]; p < m->A.p[j + 1]; p++) r += m->A.x[p] * s->y[m->A.i[p]];
             rc[j] = r;
         }
         for (j = 0; j < m->ncol; j++) {
@@ -437,24 +437,24 @@ sk_status sk_verify(const sk_model *m, sk_solution *s)
             double yv = s->y[i];
             if (atlo && athi) {
             } else if (atlo) {
-                if (-yv > dinf) dinf = -yv;
-            } else if (athi) {
                 if ( yv > dinf) dinf =  yv;
+            } else if (athi) {
+                if (-yv > dinf) dinf = -yv;
             } else {
                 if (fabs(yv) > dinf) dinf = fabs(yv);
             }
-            if (yv > 0.0) {
-                if (SK_IS_NEG_INF(m->rlow[i])) { if (yv > dinf) dinf = yv; }
+            if (yv < 0.0) {
+                if (SK_IS_NEG_INF(m->rlow[i])) { if (-yv > dinf) dinf = -yv; }
                 else dobj += yv * m->rlow[i];
                 if (!SK_IS_NEG_INF(m->rlow[i])) {
-                    double product = yv * fabs(act[i] - m->rlow[i]);
+                    double product = -yv * fabs(act[i] - m->rlow[i]);
                     if (product > comp) comp = product;
                 }
-            } else if (yv < 0.0) {
-                if (SK_IS_INF(m->rupp[i])) { if (-yv > dinf) dinf = -yv; }
+            } else if (yv > 0.0) {
+                if (SK_IS_INF(m->rupp[i])) { if (yv > dinf) dinf = yv; }
                 else dobj += yv * m->rupp[i];
                 if (!SK_IS_INF(m->rupp[i])) {
-                    double product = -yv * fabs(m->rupp[i] - act[i]);
+                    double product = yv * fabs(m->rupp[i] - act[i]);
                     if (product > comp) comp = product;
                 }
             }
