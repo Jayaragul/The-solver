@@ -212,10 +212,19 @@ SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
             for (pair = first; pair + 1 < token_count; pair += 2) if (!add_pair(&target, count, capacity, token[pair], strtod(token[pair + 1], NULL))) goto parse_failure;
             if (section == RHS) rhs = target; else ranges = target;
         } else if (section == BOUNDS) {
-            BoundDef* expanded; if (token_count < 3) goto parse_failure;
+            /* BOUNDS records are "TYPE [set] COLUMN [VALUE]".  FR/MI/PL/BV take
+               no value, the rest do, so the column and value can be located
+               from the end of the record and the set name stays optional. */
+            BoundDef* expanded; const char* btype; int wants_value; size_t colpos;
+            if (token_count < 2) goto parse_failure;
+            btype = token[0];
+            wants_value = !(strcasecmp(btype, "FR") == 0 || strcasecmp(btype, "MI") == 0 ||
+                            strcasecmp(btype, "PL") == 0 || strcasecmp(btype, "BV") == 0);
+            colpos = wants_value ? (token_count >= 2 ? token_count - 2 : 0) : token_count - 1;
+            if (wants_value && token_count < 3) goto parse_failure;
             if (bound_count == bound_capacity) { size_t next = bound_capacity ? bound_capacity * 2 : 16; expanded = (BoundDef*)realloc(bounds, next * sizeof(BoundDef)); if (!expanded) goto parse_failure; bounds = expanded; bound_capacity = next; }
-            bounds[bound_count].type = copy_string(token[0]); bounds[bound_count].column = copy_string(token[2]); bounds[bound_count].has_value = token_count > 3; bounds[bound_count].value = token_count > 3 ? strtod(token[3], NULL) : 0.0; if (!bounds[bound_count].type || !bounds[bound_count].column) goto parse_failure; ++bound_count;
-            if (find_name(columns, column_count, token[2]) < 0 && add_name(&columns, &column_count, &column_capacity, token[2]) < 0) goto parse_failure;
+            bounds[bound_count].type = copy_string(btype); bounds[bound_count].column = copy_string(token[colpos]); bounds[bound_count].has_value = wants_value; bounds[bound_count].value = wants_value ? strtod(token[token_count - 1], NULL) : 0.0; if (!bounds[bound_count].type || !bounds[bound_count].column) goto parse_failure; ++bound_count;
+            if (find_name(columns, column_count, token[colpos]) < 0 && add_name(&columns, &column_count, &column_capacity, token[colpos]) < 0) goto parse_failure;
         }
     }
     fclose(file); file = NULL;
