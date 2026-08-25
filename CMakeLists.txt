@@ -27,6 +27,9 @@ target_link_libraries(sk_lp PRIVATE sankhya_core)
 add_executable(sk_qp tools/sk_qp.c)
 target_link_libraries(sk_qp PRIVATE sankhya_core)
 
+add_executable(sk_bench tools/sk_bench.c)
+target_link_libraries(sk_bench PRIVATE sankhya_core)
+
 add_executable(sankhya_solve apps/sankhya_solve.c)
 target_link_libraries(sankhya_solve PRIVATE sankhya_core)
 
@@ -59,6 +62,9 @@ if(SANKHYA_BUILD_TESTS)
         COMMAND sk_mip ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/tiny_milp.mps --quiet)
     add_test(NAME sk_milp_knapsack
         COMMAND sk_mip ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/knapsack.mps --quiet)
+    add_test(NAME sk_bench_smoke
+        COMMAND sk_bench ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/unit_lp.mps
+                         ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/tiny_qp.qps)
     add_executable(sankhya_model_smoke c/tests/model_smoke.c)
     target_link_libraries(sankhya_model_smoke PRIVATE sankhya_core)
     add_test(NAME sankhya_model_smoke COMMAND sankhya_model_smoke)

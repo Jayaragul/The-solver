@@ -92,13 +92,14 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native sparse-QP smoke test | QPS parse → constrained QP solve → independent quadratic objective check | passed |
 | Native general-QP active-set smoke | off-diagonal convex Hessian with an active inequality; exact KKT objective `-2.25` | passed |
 | Native QP Hessian guard smoke | deliberately nonsymmetric Q is rejected as unsupported | passed |
+| Native JSONL benchmark harness | one command dispatches LP/QP/MILP files and reports status, residuals, bounds, iterations/nodes, and timing | passed |
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
 | Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 27/27 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 28/28 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
@@ -204,6 +205,13 @@ Netlib is the correctness suite; Mittelmann is for larger LP timing; QPLIB is
 for convex QP; MIPLIB is for MILP. Every claimed LP optimum must pass an
 independent certificate. Results must include objective, residuals, status,
 iterations/nodes, wall time, memory, machine, compiler, and dataset hashes.
+
+For a native JSONL run over a frozen file list, use `sk_bench`; it has no
+Python dependency and emits one machine-readable record per instance:
+
+```text
+build\native\sk_bench.exe --time-limit 5 bench\smoke\unit_lp.mps bench\smoke\tiny_qp.qps
+```
 
 ## Roadmap
 
