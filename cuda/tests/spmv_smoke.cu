@@ -34,9 +34,16 @@ int main() {
     if (cudaMemcpy(device_x, x, sizeof(x), cudaMemcpyHostToDevice) != cudaSuccess ||
         sankhya_cuda_spmv_device_f64(&persistent, device_x, device_y) != 0 ||
         cudaMemcpy(y, device_y, sizeof(y), cudaMemcpyDeviceToHost) != cudaSuccess) return 5;
+    if (std::fabs(y[0] - 16.0) > 1e-12 || std::fabs(y[1] - 43.0) > 1e-12) return 6;
+    /* Device primitives are queued: chain A*x -> A^T*y -> A*x without a
+       host synchronization between launches.  The final copy establishes
+       visibility and verifies default-stream ordering. */
+    if (sankhya_cuda_spmv_transpose_device_f64(&persistent, device_y, device_x) != 0 ||
+        sankhya_cuda_spmv_device_f64(&persistent, device_x, device_y) != 0 ||
+        cudaMemcpy(y, device_y, sizeof(y), cudaMemcpyDeviceToHost) != cudaSuccess) return 7;
     cudaFree(device_x);
     cudaFree(device_y);
     sankhya_cuda_csr_destroy(&persistent);
-    if (std::fabs(y[0] - 16.0) > 1e-12 || std::fabs(y[1] - 43.0) > 1e-12) return 6;
+    if (std::fabs(y[0] - 424.0) > 1e-12 || std::fabs(y[1] - 1203.0) > 1e-12) return 8;
     return 0;
 }
