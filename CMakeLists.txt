@@ -12,7 +12,8 @@ add_library(sankhya_core STATIC
     c/src/sk_lu.c
     c/src/sk_core.c
     c/src/sk_solve.c
-    c/src/sk_simplex.c)
+    c/src/sk_simplex.c
+    c/src/sk_scale.c)
 target_include_directories(sankhya_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/c/include)
 target_compile_features(sankhya_core PUBLIC c_std_11)
 
@@ -34,6 +35,8 @@ if(SANKHYA_BUILD_TESTS)
         COMMAND sk_lp ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/unit_lp.mps --quiet)
     add_test(NAME sk_simplex_tiny
         COMMAND sk_lp ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/tiny_lp.mps --quiet)
+    add_test(NAME sk_simplex_scaled
+        COMMAND sk_lp ${CMAKE_CURRENT_SOURCE_DIR}/bench/smoke/scaled_lp.mps --quiet)
     add_executable(sankhya_model_smoke c/tests/model_smoke.c)
     target_link_libraries(sankhya_model_smoke PRIVATE sankhya_core)
     add_test(NAME sankhya_model_smoke COMMAND sankhya_model_smoke)

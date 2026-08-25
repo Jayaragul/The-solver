@@ -24,6 +24,7 @@
  */
 #include "sk_simplex.h"
 #include "sk_lu.h"
+#include "sk_scale.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -55,6 +56,10 @@ typedef struct spx {
     double *rhs;           /* nrow: scratch                               */
     double *d;             /* ntot: reduced costs                         */
 
+    double *R, *C;         /* row / column scale factors, powers of two   */
+    double *w;             /* ntot: Devex reference weights               */
+    double *rho;           /* nrow: pivot row scratch for the Devex update */
+    int     devex_age;
     double  primal_tol, dual_tol, pivot_tol;
     int     refactor_interval;
     sk_spx_stats st;
@@ -68,6 +73,8 @@ static void spx_free(spx *S)
     free(S->lb); free(S->ub); free(S->cost);
     free(S->basis); free(S->stat); free(S->xval); free(S->xB);
     free(S->y); free(S->cB); free(S->alpha); free(S->rhs); free(S->d);
+    free(S->R); free(S->C);
+    free(S->w); free(S->rho);
     free(S->B.p); free(S->B.i); free(S->B.x);
     sk_lu_free(&S->lu);
     memset(S, 0, sizeof(*S));
@@ -108,18 +115,35 @@ static sk_status spx_build(spx *S, const sk_model *m, const sk_options *o)
         !S->basis || !S->stat || !S->xval || !S->xB || !S->y || !S->cB ||
         !S->alpha || !S->rhs || !S->d) { spx_free(S); return SK_ERR_MEMORY; }
 
+    /* Work on the scaled model  (R A C) x~ = s~,  x = C x~,  y = R y~. */
+    S->R = (double *)malloc((size_t)(nr > 0 ? nr : 1) * sizeof(double));
+    S->C = (double *)malloc((size_t)(nc > 0 ? nc : 1) * sizeof(double));
+    S->w = (double *)malloc((size_t)nt * sizeof(double));
+    S->rho = (double *)calloc((size_t)(nr > 0 ? nr : 1), sizeof(double));
+    if (!S->R || !S->C || !S->w || !S->rho) { spx_free(S); return SK_ERR_MEMORY; }
+    for (j = 0; j < nt; j++) S->w[j] = 1.0;
+    S->devex_age = 0;
+    if (o->scaling) sk_scale_model(m, S->R, S->C, 4);
+    else { for (j = 0; j < nr; j++) S->R[j] = 1.0; for (j = 0; j < nc; j++) S->C[j] = 1.0; }
+
     for (j = 0; j < nc; j++) {
+        double cj = S->C[j];
         S->M.p[j] = q;
-        for (p = m->A.p[j]; p < m->A.p[j + 1]; p++) { S->M.i[q] = m->A.i[p]; S->M.x[q] = m->A.x[p]; q++; }
-        S->lb[j] = m->clow[j];
-        S->ub[j] = m->cupp[j];
-        S->cost[j] = m->c[j];
+        for (p = m->A.p[j]; p < m->A.p[j + 1]; p++) {
+            S->M.i[q] = m->A.i[p];
+            S->M.x[q] = m->A.x[p] * S->R[m->A.i[p]] * cj;
+            q++;
+        }
+        S->lb[j] = SK_IS_NEG_INF(m->clow[j]) ? -SK_INFINITY : m->clow[j] / cj;
+        S->ub[j] = SK_IS_INF(m->cupp[j])     ?  SK_INFINITY : m->cupp[j] / cj;
+        S->cost[j] = m->c[j] * cj;
     }
     for (j = 0; j < nr; j++) {
+        double rj = S->R[j];
         S->M.p[nc + j] = q;
         S->M.i[q] = j; S->M.x[q] = -1.0; q++;
-        S->lb[nc + j] = m->rlow[j];
-        S->ub[nc + j] = m->rupp[j];
+        S->lb[nc + j] = SK_IS_NEG_INF(m->rlow[j]) ? -SK_INFINITY : m->rlow[j] * rj;
+        S->ub[nc + j] = SK_IS_INF(m->rupp[j])     ?  SK_INFINITY : m->rupp[j] * rj;
         S->cost[nc + j] = 0.0;
     }
     S->M.p[nt] = q;
@@ -240,10 +264,61 @@ static int spx_choose_entering(spx *S, int bland, int *dir_out)
         else if (t == SK_AT_UPPER) { if (dj <=  S->dual_tol) continue; dir = -1; }
         else                       { if (fabs(dj) <= S->dual_tol) continue; dir = (dj < 0.0) ? 1 : -1; }
         if (bland) return (*dir_out = dir), j;
-        if (fabs(dj) > bestval) { bestval = fabs(dj); best = j; bestdir = dir; }
+        /* Devex: score d_j^2 / w_j rather than |d_j|.  Dantzig's rule measures
+         * the objective gain per unit *step in x_j*, which says nothing about
+         * how far the ratio test will actually let x_j move.  On degenerate
+         * models it therefore keeps picking columns that yield a zero step.
+         * The reference weight w_j estimates the length of the move, so the
+         * score approximates gain per unit distance travelled in the basis. */
+        {
+            double w = S->w ? S->w[j] : 1.0;
+            double score = (dj * dj) / (w > 1e-12 ? w : 1e-12);
+            if (score > bestval) { bestval = score; best = j; bestdir = dir; }
+        }
     }
     *dir_out = bestdir;
     return best;
+}
+
+/* Devex weight update (Forrest-Goldfarb).
+ *
+ * Needs the pivot row of B^{-1}N, obtained by one extra BTRAN of e_r followed
+ * by a pass over the nonbasic columns - the same order of cost as pricing
+ * itself, and it routinely pays for itself several times over in iterations
+ * saved.  Weights are reset to a fresh reference framework when they grow
+ * large enough that the estimate has drifted. */
+static void spx_devex_update(spx *S, int enter, int leave, double pivot)
+{
+    int j, p;
+    double wq, inv;
+
+    if (!S->w || !S->rho) return;
+    if (fabs(pivot) < 1e-12) return;
+
+    memset(S->rho, 0, (size_t)S->nrow * sizeof(double));
+    S->rho[leave] = 1.0;
+    if (sk_lu_btran(&S->lu, S->rho) != SK_OK) return;
+
+    wq = S->w[enter];
+    inv = 1.0 / pivot;
+    for (j = 0; j < S->ntot; j++) {
+        double arj = 0.0, cand;
+        if (S->stat[j] == SK_BASIC || j == enter) continue;
+        for (p = S->M.p[j]; p < S->M.p[j + 1]; p++) arj += S->M.x[p] * S->rho[S->M.i[p]];
+        if (arj == 0.0) continue;
+        cand = (arj * inv) * (arj * inv) * wq;
+        if (cand > S->w[j]) S->w[j] = cand;
+    }
+    {
+        double wl = wq * inv * inv;
+        S->w[S->basis[leave]] = wl > 1.0 ? wl : 1.0;
+    }
+    S->w[enter] = 1.0;
+
+    if (++S->devex_age > 2000) {                 /* refresh the framework */
+        for (j = 0; j < S->ntot; j++) S->w[j] = 1.0;
+        S->devex_age = 0;
+    }
 }
 
 /* Effective ratio-test bounds for basic position k. */
@@ -437,6 +512,11 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
             double delta = dir * step;
             double lo, hi;
 
+            /* Refresh the Devex weights while the old factorization and the
+               old basis are both still in place - the update needs the pivot
+               row of the basis we are about to leave. */
+            if (!bland) spx_devex_update(&S, enter, leave, S.alpha[leave]);
+
             /* Capture the phase-1 effective bound before xB is updated.
                After the update the basic value becomes feasible and the
                special one-sided Phase-1 bound is no longer detectable. */
@@ -499,7 +579,8 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     if (!s->x || !s->y || !s->rc || !s->rowact) { spx_free(&S); return SK_ERR_MEMORY; }
     s->ncol = m->ncol; s->nrow = m->nrow;
 
-    for (j = 0; j < m->ncol; j++) s->x[j] = S.xval[j];
+    /* back to the original variable space: x = C x~ */
+    for (j = 0; j < m->ncol; j++) s->x[j] = S.xval[j] * S.C[j];
 
     /* duals from the phase-2 basis */
     spx_build_cB(&S, 0);
@@ -507,7 +588,8 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     if (sk_lu_btran(&S.lu, S.y) == SK_OK) {
         /* The simplex equality is [A -I](x;s)=0.  Its multiplier has
            stationarity c-A'y=0, whereas the public API uses c+A'y=0. */
-        for (k = 0; k < m->nrow; k++) s->y[k] = -S.y[k];
+        /* and the original dual space: y = R y~ */
+        for (k = 0; k < m->nrow; k++) s->y[k] = -S.y[k] * S.R[k];
     } else {
         for (k = 0; k < m->nrow; k++) s->y[k] = 0.0;
     }

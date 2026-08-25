@@ -1,0 +1,13 @@
+NAME          SCALEDLP
+OBJSENSE
+ MIN
+ROWS
+ N  OBJ
+ G  DEMAND
+COLUMNS
+    X         OBJ       1.0       DEMAND   1.0E-12
+RHS
+    RHS1      DEMAND    1.0
+BOUNDS
+ LO BND1      X         0.0
+ENDATA

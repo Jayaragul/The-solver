@@ -119,7 +119,38 @@ void sankhya_lp_model_destroy(SankhyaLPModel* model) {
     sankhya_lp_model_init(model);
 }
 
+/* Extract columns [from,to] (1-based, inclusive) of a fixed-format record.
+   Leading and trailing blanks are trimmed but embedded ones are preserved,
+   because strict MPS permits names such as "DEDO3 11". Returns 0 if empty. */
+static int fixed_field(const char* line, size_t len, size_t from, size_t to,
+                       char* buf, size_t bufsz) {
+    size_t i, n = 0, start, stop;
+    if (from < 1 || from > len) return 0;
+    if (to > len) to = len;
+    start = from - 1; stop = to;
+    while (start < stop && (line[start] == ' ' || line[start] == '\t')) ++start;
+    while (stop > start) {
+        char c = line[stop - 1];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') --stop; else break;
+    }
+    for (i = start; i < stop && n + 1 < bufsz; ++i) buf[n++] = line[i];
+    buf[n] = '\0';
+    return n > 0;
+}
+
+static SankhyaStatus read_mps_impl(const char* path, SankhyaLPModel* model, int fixed_format);
+
+/* Free-format tokenization handles almost every MPS file in circulation, but
+   strict fixed-format files may embed blanks inside names, which no
+   whitespace tokenizer can recover.  Try the common case first and fall back
+   to column-addressed parsing only when it fails. */
 SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
+    SankhyaStatus status = read_mps_impl(path, model, 0);
+    if (status != SANKHYA_OK) status = read_mps_impl(path, model, 1);
+    return status;
+}
+
+static SankhyaStatus read_mps_impl(const char* path, SankhyaLPModel* model, int fixed_format) {
     enum { NONE, ROWS, COLUMNS, RHS, RANGES, BOUNDS, QUADRATIC } section = NONE;
     FILE* file;
     char line[8192];
@@ -139,6 +170,7 @@ SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
     sankhya_lp_model_init(&candidate);
     while (fgets(line, sizeof(line), file) != NULL) {
         char* token[8]; size_t token_count = 0; char* current; int is_header;
+        char fixed_buf[8][64];
         if (line[0] == '*' || line[0] == '\n' || line[0] == '\r') continue;
         /* MPS separates a section header from a data record by column 1:
            headers begin there, data records are indented.  Without this test a
@@ -147,8 +179,29 @@ SankhyaStatus sankhya_lp_read_mps(const char* path, SankhyaLPModel* model) {
            what most of Netlib uses - is mistaken for a second section header
            and silently discarded, leaving every right-hand side at zero. */
         is_header = (line[0] != ' ' && line[0] != '\t');
-        current = strtok(line, " \t\r\n");
-        while (current != NULL && token_count < 8) { strip_quotes(current); token[token_count++] = current; current = strtok(NULL, " \t\r\n"); }
+        if (fixed_format && !is_header) {
+            /* Standard MPS field columns: 2-3, 5-12, 15-22, 25-36, 40-47,
+               50-61.  Field 1 is the record type and is blank outside ROWS
+               and BOUNDS; dropping it when empty makes the token vector line
+               up with the free-format one, so the section handlers below need
+               no special case. */
+            static const size_t lo[6] = { 2, 5, 15, 25, 40, 50 };
+            static const size_t hi[6] = { 3, 12, 22, 36, 47, 61 };
+            size_t len = strlen(line), f;
+            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) line[--len] = '\0';
+            for (f = 0; f < 6; ++f) {
+                if (!fixed_field(line, len, lo[f], hi[f], fixed_buf[token_count],
+                                 sizeof(fixed_buf[0]))) {
+                    if (f == 0) continue;      /* blank record-type column */
+                    else continue;             /* blank optional field */
+                }
+                token[token_count] = fixed_buf[token_count];
+                ++token_count;
+            }
+        } else {
+            current = strtok(line, " \t\r\n");
+            while (current != NULL && token_count < 8) { strip_quotes(current); token[token_count++] = current; current = strtok(NULL, " \t\r\n"); }
+        }
         if (token_count == 0) continue;
         if (is_header && strcasecmp(token[0], "NAME") == 0) { if (token_count > 1) strncpy(model_name, token[1], sizeof(model_name) - 1); continue; }
         if (is_header && strcasecmp(token[0], "OBJSENSE") == 0) { section = NONE; continue; }
