@@ -34,6 +34,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Native CPU QP dispatch has an exact closed-form path for unconstrained
   nonnegative diagonal Hessians; it returns an independently verified solution
   without entering the iterative PDHG loop.
+- Small bound-free QPs with all-equality rows use a guarded dense KKT solve;
+  singular, non-convex, bounded, or inequality models remain on verified PDHG.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
   pseudocost branching, incumbent-driven objective bound propagation, rounding
@@ -83,7 +85,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 20/20 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 21/21 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |

@@ -169,6 +169,53 @@ static int qp_diagonal_unconstrained(const sk_model *m, const sk_options *o,
     return 1;
 }
 
+/* Exact KKT solve for small equality-constrained QPs without variable bounds.
+ * This is deliberately guarded: redundant constraints or an indefinite
+ * Hessian simply fall back to the general verified PDHG path. */
+static int qp_equality_kkt(const sk_model *m, const sk_options *o, sk_solution *s)
+{
+    int i, j, p, dim, equality = 1;
+    double *kmat = NULL, *rhs = NULL;
+    if (!m->Q || m->nrow <= 0 || m->ncol + m->nrow > 512) return 0;
+    for (j = 0; j < m->ncol; ++j)
+        if (!SK_IS_NEG_INF(m->clow[j]) || !SK_IS_INF(m->cupp[j])) return 0;
+    for (i = 0; i < m->nrow; ++i)
+        if (SK_IS_NEG_INF(m->rlow[i]) || SK_IS_INF(m->rupp[i]) ||
+            fabs(m->rlow[i] - m->rupp[i]) > 1e-9) { equality = 0; break; }
+    if (!equality) return 0;
+    dim = m->ncol + m->nrow;
+    kmat = (double *)calloc((size_t)dim * (size_t)dim, sizeof(double));
+    rhs = (double *)calloc((size_t)dim, sizeof(double));
+    if (!kmat || !rhs) { free(kmat); free(rhs); return 0; }
+    for (j = 0; j < m->ncol; ++j) {
+        rhs[j] = -m->c[j];
+        for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+            kmat[j * dim + m->Q->i[p]] += m->Q->x[p];
+        for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) {
+            i = m->A.i[p];
+            kmat[j * dim + m->ncol + i] += m->A.x[p];
+            kmat[(m->ncol + i) * dim + j] += m->A.x[p];
+        }
+    }
+    for (i = 0; i < m->nrow; ++i) rhs[m->ncol + i] = m->rlow[i];
+    if (!qp_dense_solve(kmat, rhs, dim)) { free(kmat); free(rhs); return 0; }
+    sk_solution_init(s);
+    s->x = (double *)calloc((size_t)m->ncol + 1, sizeof(double));
+    s->y = (double *)calloc((size_t)m->nrow + 1, sizeof(double));
+    if ((!s->x && m->ncol) || (!s->y && m->nrow)) { sk_solution_free(s); free(kmat); free(rhs); return 0; }
+    memcpy(s->x, rhs, (size_t)m->ncol * sizeof(double));
+    memcpy(s->y, rhs + m->ncol, (size_t)m->nrow * sizeof(double));
+    s->ncol = m->ncol; s->nrow = m->nrow; s->iterations = 0;
+    if (sk_verify(m, s) != SK_OK || s->primal_infeasibility > 100.0 * o->primal_tol ||
+        s->dual_infeasibility > 100.0 * o->dual_tol ||
+        s->complementarity > 100.0 * o->dual_tol) {
+        sk_solution_free(s); free(kmat); free(rhs); return 0;
+    }
+    s->dual_bound = s->objective; s->mip_gap = 0.0; s->result = SK_RESULT_OPTIMAL;
+    free(kmat); free(rhs);
+    return 1;
+}
+
 /* Small-problem active-set polish for the first-order QP path.  PDHG is
  * deliberately retained for large sparse models, but on a small model a few
  * dense KKT corrections remove the long feasibility tail common to QPS
@@ -372,6 +419,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             s->ncol = n; s->nrow = r;
             return SK_OK;
         }
+        if (qp_equality_kkt(m, o, s)) return SK_OK;
     }
 
     x = (double *)calloc((size_t)n, sizeof(double));
