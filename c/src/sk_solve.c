@@ -7,6 +7,7 @@
  * only when their implementations and certificates exist. */
 #include "sankhya.h"
 #include "sk_milp.h"
+#include "sk_simplex.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -753,8 +754,37 @@ memory_failure:
 
 sk_status sk_solve(const sk_model *m, const sk_options *options, sk_solution *s)
 {
+    sk_options fallback;
     if (!m || !s) return SK_ERR_ARG;
-    if (sk_model_num_integer(m) == 0) return solve_continuous(m, options, s);
+    if (!options) { sk_options_default(&fallback); options = &fallback; }
+    if (options->lp_engine < SK_LP_AUTO || options->lp_engine > SK_LP_FIRST_ORDER)
+        return SK_ERR_ARG;
+
+    /* Bound-consistency presolve runs ahead of engine selection: proving
+       infeasibility from the bounds alone is a property of the model, not of
+       whichever algorithm would have been used, and it must cost no
+       iterations.  It previously sat inside the first-order path, so routing
+       LPs to the simplex would otherwise have lost it. */
+    if (interval_infeasible(m, options->primal_tol > 0.0 ? options->primal_tol : 1e-7)) {
+        sk_solution_init(s);
+        s->result = SK_RESULT_INFEASIBLE;
+        s->ncol = m->ncol; s->nrow = m->nrow;
+        s->primal_infeasibility = INFINITY;
+        return SK_OK;
+    }
+
+    if (sk_model_num_integer(m) == 0) {
+        /* An LP is solved by the revised simplex: it terminates at a vertex
+           with an exact basis, so the primal-dual certificate in sk_verify can
+           actually be satisfied.  The first-order path converges to ~1e-5 and
+           carries no basis, so it is reserved for quadratic objectives and for
+           callers who ask for it explicitly. */
+        const int engine = options->lp_engine;
+        if (m->Q == NULL && engine != SK_LP_FIRST_ORDER)
+            return sk_simplex_solve(m, options, s, NULL);
+        if (m->Q != NULL && engine == SK_LP_SIMPLEX) return SK_ERR_UNSUPPORTED;
+        return solve_continuous(m, options, s);
+    }
     /* MILP uses certified simplex relaxations; the MIQP driver admits only
        the guarded separable diagonal-QP relaxation implemented in sk_milp. */
     return sk_milp_solve(m, options, s, NULL);

@@ -171,6 +171,7 @@ void sk_options_default(sk_options *o)
     o->mip_cuts = 1;
     o->mip_heuristics = 1;
     o->dual_simplex = 1;
+    o->lp_engine = SK_LP_AUTO;
     o->random_seed = 20260825ULL;
 }
 

@@ -561,7 +561,9 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
 
         S.st.iterations++;
 
-        /* stall detection -> Bland's rule, which terminates finitely */
+        /* Stall detection: Devex -> Dantzig -> Bland.  Dantzig restores
+         * objective progress on degenerate Netlib bases before the finite but
+         * slower Bland fallback is engaged. */
         {
             double now = phase1 ? spx_infeasibility(&S) : 0.0;
             if (phase1) {
@@ -570,9 +572,14 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
             } else {
                 if (step <= 1e-12) stall++; else stall = 0;
             }
-            if (stall > 1000 && bland == 2) bland = 1;
-            else if (stall > 200 && bland == 0) bland = 2;
-            else if (stall == 0 && bland) bland = 0;
+            if (stall > 1000 && bland == 2) {
+                bland = 1;
+                S.st.bland_episodes++;
+            } else if (stall > 200 && bland == 0) {
+                bland = 2;
+            } else if (stall == 0 && bland) {
+                bland = 0;
+            }
         }
     }
 

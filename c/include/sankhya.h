@@ -47,6 +47,13 @@ typedef enum sk_vartype {
     SK_INTEGER    = 1
 } sk_vartype;
 
+/* Continuous solve engines, for sk_options.lp_engine. */
+enum {
+    SK_LP_AUTO        = 0,   /* simplex for LP, first-order for QP */
+    SK_LP_SIMPLEX     = 1,   /* force the revised simplex          */
+    SK_LP_FIRST_ORDER = 2    /* force the PDHG path                */
+};
+
 #define SK_INFINITY 1.0e30
 #define SK_IS_INF(x)     ((x) >=  SK_INFINITY)
 #define SK_IS_NEG_INF(x) ((x) <= -SK_INFINITY)
@@ -143,6 +150,10 @@ typedef struct sk_options {
     int    mip_cuts;
     int    mip_heuristics;
     int    dual_simplex;     /* prefer dual simplex where applicable    */
+    /* Continuous engine selection.  SK_LP_AUTO uses the revised simplex for
+       LPs, which is the exact, certificate-bearing path; the first-order
+       method is retained for QP and for LPs too large for a basis factor. */
+    int    lp_engine;
     unsigned long long random_seed;
 } sk_options;
 

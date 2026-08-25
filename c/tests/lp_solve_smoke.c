@@ -25,6 +25,16 @@ int main(void)
         return 2;
     }
     sk_solution_free(&solution);
+
+    /* Invalid engine selectors must fail explicitly instead of silently
+       changing the numerical method. */
+    options.lp_engine = 99;
+    if (sk_solve(&model, &options, &solution) != SK_ERR_ARG) {
+        sk_solution_free(&solution);
+        sk_model_free(&model);
+        return 3;
+    }
+
     sk_model_free(&model);
     return 0;
 }

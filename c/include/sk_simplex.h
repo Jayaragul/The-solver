@@ -28,6 +28,7 @@ typedef struct sk_spx_stats {
     long long phase1_iterations;
     long long refactorizations;
     long long bound_flips;
+    long long bland_episodes;   /* times the anti-cycling rule engaged */
     double    phase1_seconds;
     double    phase2_seconds;
     double    final_primal_infeasibility;
