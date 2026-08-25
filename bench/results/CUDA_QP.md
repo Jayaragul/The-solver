@@ -39,3 +39,15 @@ The printed DPKLO1 objective agrees with the native CPU optimum record
 the known objective `-4`. These are accelerator capability records, not a
 claim that the first-order GPU path replaces the certificate-bearing CPU
 simplex/KKT engines.
+
+## Fixed five-second GPU check
+
+The following use `--iterations 1000000 --time-limit 5 --tolerance 1e-5` on
+the same RTX 3050. A status of `2` is a retained time limit, not an optimality
+claim.
+
+| Instance | Status | Iterations | Objective at stop | Primal inf | Seconds |
+|---|---:|---:|---:|---:|---:|
+| DPKLO1 | converged | 300 | 0.370096213395 | 2.429e-07 | 0.013175 |
+| QPCBOEI1 | time limit | 60500 | 11274179.6675 | 2.472e+00 | 5.007377 |
+| QSCAGR7 | time limit | 68900 | 26866711.585 | 4.483e-02 | 5.011802 |
