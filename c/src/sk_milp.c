@@ -136,14 +136,14 @@ typedef struct milp {
 
 static int is_int_var(const sk_model *m, int j) { return m->vartype[j] == SK_INTEGER; }
 
-/* The first MIQP relaxation path is intentionally narrow.  A diagonal Q with
- * no structural rows is separable, so every node relaxation is solved exactly
- * by the guarded continuous-QP closed form.  Do not send a general QP through
- * branch-and-bound until its node relaxation has a global certificate. */
+/* The first MIQP relaxation path is intentionally narrow.  A nonnegative
+ * diagonal Q is admitted when the total number of variables and rows is small
+ * enough for the exact active-set certificate (or when there are no rows and
+ * the separable closed form applies). */
 static int miqp_relaxation_supported(const sk_model *m)
 {
     int j, p;
-    if (!m || !m->Q || !m->A.p || m->A.p[m->ncol] != 0) return 0;
+    if (!m || !m->Q || !m->A.p || m->ncol + m->nrow > 12) return 0;
     for (j = 0; j < m->ncol; ++j)
         for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
             if (m->Q->i[p] != j || m->Q->x[p] < 0.0 || !isfinite(m->Q->x[p])) return 0;

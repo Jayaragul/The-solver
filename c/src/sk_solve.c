@@ -171,6 +171,141 @@ static int qp_diagonal_unconstrained(const sk_model *m, const sk_options *o,
 
 static int qp_dense_solve(double *a, double *b, int n);
 
+/* Exhaustive active-set certificate for very small convex QPs.  Every
+ * variable is enumerated as free/lower/upper and every row as inactive/lower/
+ * upper.  A nonsingular KKT system is solved for each pattern and accepted
+ * only when the independent verifier confirms primal feasibility, stationarity
+ * and complementarity.  This is intentionally capped: it is a certificate
+ * path for small MIQP node relaxations, not a replacement for a sparse QP
+ * active-set or interior-point method. */
+static int qp_active_enumerate(const sk_model *m, const sk_options *o,
+                               sk_solution *s)
+{
+    int n = m->ncol, r = m->nrow, total_dim = n + r;
+    int *vstat = NULL, *rstat = NULL, *vfree = NULL, *ractive = NULL, *vmap = NULL;
+    double *x = NULL, *y = NULL, *bestx = NULL, *besty = NULL;
+    double *kmat = NULL, *rhs = NULL;
+    long long patterns = 1, code, best_found = 0;
+    double best_obj = INFINITY;
+    int i, j, p;
+
+    if (!m->Q || total_dim > 12) return 0;
+    for (i = 0; i < total_dim; ++i) {
+        if (patterns > 531441LL / 3LL) return 0;
+        patterns *= 3;
+    }
+    vstat = (int *)malloc((size_t)n * sizeof(int));
+    rstat = (int *)malloc((size_t)r * sizeof(int));
+    vfree = (int *)malloc((size_t)n * sizeof(int));
+    ractive = (int *)malloc((size_t)r * sizeof(int));
+    vmap = (int *)malloc((size_t)n * sizeof(int));
+    x = (double *)calloc((size_t)n + 1, sizeof(double));
+    y = (double *)calloc((size_t)r + 1, sizeof(double));
+    bestx = (double *)calloc((size_t)n + 1, sizeof(double));
+    besty = (double *)calloc((size_t)r + 1, sizeof(double));
+    kmat = (double *)calloc((size_t)total_dim * (size_t)total_dim, sizeof(double));
+    rhs = (double *)calloc((size_t)total_dim, sizeof(double));
+    if ((!vstat && n) || (!rstat && r) || (!vfree && n) || (!ractive && r) ||
+        (!vmap && n) || !x || !y || !bestx || !besty || !kmat || !rhs) goto done;
+
+    for (code = 0; code < patterns; ++code) {
+        long long digit = code;
+        int nf = 0, na = 0, dim;
+        sk_solution candidate;
+        double obj;
+
+        for (j = 0; j < n; ++j) { vstat[j] = (int)(digit % 3); digit /= 3; }
+        for (i = 0; i < r; ++i) { rstat[i] = (int)(digit % 3); digit /= 3; }
+        for (j = 0; j < n; ++j) {
+            if (vstat[j] == 1 && SK_IS_NEG_INF(m->clow[j])) goto next_pattern;
+            if (vstat[j] == 2 && SK_IS_INF(m->cupp[j])) goto next_pattern;
+            if (vstat[j] == 1) x[j] = m->clow[j];
+            else if (vstat[j] == 2) x[j] = m->cupp[j];
+            else { x[j] = 0.0; vmap[j] = nf; vfree[nf++] = j; }
+        }
+        for (i = 0; i < r; ++i) {
+            if (rstat[i] == 1 && SK_IS_NEG_INF(m->rlow[i])) goto next_pattern;
+            if (rstat[i] == 2 && SK_IS_INF(m->rupp[i])) goto next_pattern;
+            if (rstat[i] != 0) ractive[na++] = i;
+        }
+        dim = nf + na;
+        if (dim > total_dim) goto next_pattern;
+        memset(kmat, 0, (size_t)total_dim * (size_t)total_dim * sizeof(double));
+        memset(rhs, 0, (size_t)total_dim * sizeof(double));
+        memset(y, 0, (size_t)r * sizeof(double));
+
+        /* Free-variable stationarity: Q_ff x_f + A' y = -c-Q_f,fixed x_fixed. */
+        for (j = 0; j < nf; ++j) {
+            int v = vfree[j];
+            rhs[j] = -m->c[v];
+            for (p = m->Q->p[v]; p < m->Q->p[v + 1]; ++p) {
+                int q = m->Q->i[p];
+                if (vstat[q] == 0) kmat[j * dim + vmap[q]] += m->Q->x[p];
+                else rhs[j] -= m->Q->x[p] * x[q];
+            }
+            for (p = m->A.p[v]; p < m->A.p[v + 1]; ++p) {
+                int row = m->A.i[p], k;
+                for (k = 0; k < na; ++k) if (ractive[k] == row) {
+                    kmat[j * dim + nf + k] += m->A.x[p];
+                    kmat[(nf + k) * dim + j] += m->A.x[p];
+                }
+            }
+        }
+        /* Active rows enforce their selected bound. */
+        for (i = 0; i < na; ++i) {
+            int row = ractive[i];
+            double bound = rstat[row] == 1 ? m->rlow[row] : m->rupp[row];
+            rhs[nf + i] = bound;
+            for (j = 0; j < n; ++j) {
+                double coeff = 0.0;
+                for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
+                    if (m->A.i[p] == row) { coeff = m->A.x[p]; break; }
+                if (vstat[j] == 0) kmat[(nf + i) * dim + vmap[j]] += coeff;
+                else rhs[nf + i] -= coeff * x[j];
+            }
+        }
+        if (dim > 0 && !qp_dense_solve(kmat, rhs, dim)) goto next_pattern;
+        for (j = 0; j < nf; ++j) x[vfree[j]] = rhs[j];
+        for (i = 0; i < na; ++i) y[ractive[i]] = rhs[nf + i];
+
+        sk_solution_init(&candidate);
+        candidate.x = x; candidate.y = y;
+        candidate.ncol = n; candidate.nrow = r;
+        if (sk_verify(m, &candidate) != SK_OK ||
+            candidate.primal_infeasibility > 100.0 * o->primal_tol ||
+            candidate.dual_infeasibility > 100.0 * o->dual_tol ||
+            candidate.complementarity > 100.0 * o->dual_tol) goto next_pattern;
+        obj = candidate.objective;
+        if (!best_found || obj < best_obj) {
+            memcpy(bestx, x, (size_t)n * sizeof(double));
+            memcpy(besty, y, (size_t)r * sizeof(double));
+            best_obj = obj; best_found = 1;
+        }
+
+next_pattern:
+        memset(x, 0, (size_t)n * sizeof(double));
+        memset(y, 0, (size_t)r * sizeof(double));
+    }
+    if (best_found) {
+        sk_solution_init(s);
+        s->x = (double *)calloc((size_t)n + 1, sizeof(double));
+        s->y = (double *)calloc((size_t)r + 1, sizeof(double));
+        if ((!s->x && n) || (!s->y && r)) { sk_solution_free(s); best_found = 0; goto done; }
+        memcpy(s->x, bestx, (size_t)n * sizeof(double));
+        memcpy(s->y, besty, (size_t)r * sizeof(double));
+        s->ncol = n; s->nrow = r; s->iterations = 0;
+        if (sk_verify(m, s) == SK_OK && s->primal_infeasibility <= 100.0 * o->primal_tol &&
+            s->dual_infeasibility <= 100.0 * o->dual_tol &&
+            s->complementarity <= 100.0 * o->dual_tol) {
+            s->dual_bound = s->objective; s->mip_gap = 0.0; s->result = SK_RESULT_OPTIMAL;
+        } else { sk_solution_free(s); best_found = 0; }
+    }
+done:
+    free(vstat); free(rstat); free(vfree); free(ractive); free(vmap);
+    free(x); free(y); free(bestx); free(besty); free(kmat); free(rhs);
+    return best_found ? 1 : 0;
+}
+
 static int qp_psd_check(const sk_model *m)
 {
     int n = m->ncol, i, j, k, p;
@@ -467,6 +602,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             return SK_OK;
         }
         if (qp_equality_kkt(m, o, s)) return SK_OK;
+        if (qp_active_enumerate(m, o, s)) return SK_OK;
     }
 
     x = (double *)calloc((size_t)n, sizeof(double));

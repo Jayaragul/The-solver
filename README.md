@@ -46,9 +46,11 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   pseudocost branching, incumbent-driven objective bound propagation, rounding
   heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
-  A guarded MIQP slice is also available for separable nonnegative diagonal Q
-  with variable bounds only; its node relaxations are solved in closed form.
-  General MIQP, cuts, conflict analysis, and parallel search remain future work.
+  A guarded MIQP slice is also available for nonnegative diagonal Q with at
+  most twelve total variables/rows; its small node relaxations are solved by
+  exhaustive active-set KKT certification (with the closed form retained for
+  bounds-only nodes). General MIQP, cuts, conflict analysis, and parallel
+  search remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
@@ -91,7 +93,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native QP CLI regression | `sk_qp` solves `tiny_qp.qps`, objective `-4`, independent KKT check | passed |
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
-| Native diagonal-MIQP branch-and-bound smoke | separable convex integer QP reaches `(2,2)`, objective `-6`, zero proven gap in 5 certified node relaxations | passed |
+| Native diagonal-MIQP branch-and-bound smoke | small row-constrained separable convex integer QP reaches `(1,1)`, objective `-4`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
 | Full CMake test suite | 24/24 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
