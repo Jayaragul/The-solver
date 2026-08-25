@@ -76,7 +76,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Netlib 5-second sweep | 25/31 LPs optimal with independent residual checks; 6 declared time limits, no false optimum | recorded |
-| Netlib / HiGHS comparison | 46/50 solutions agree with isolated HiGHS 1.11; 4 limits/stalls retained in the record | recorded |
+| Netlib / HiGHS comparison | 47/50 solutions agree with isolated HiGHS 1.11; 3 limits/stalls retained in the record | recorded |
 | Netlib AFIRO | default norm-scaled CUDA PDHG: objective error `5.54e-8`; primal verification at `1e-5` | passed |
 | HiGHS comparison on AFIRO | isolated HiGHS 1.15.1 baseline recorded | passed |
 | CUDA diagonal-QP smoke test | known solution `x=2`, objective `-4` | passed |
@@ -165,12 +165,12 @@ and lists every solved and time-limited instance.
 The broader, isolated HiGHS comparison is stored as machine-readable measured
 data in [netlib_lp.json](bench/results/netlib_lp.json): 50 original Netlib MPS
 models with objective, residual, status, iteration, and timing fields for both
-solvers. It records 46 agreeing optima; `cycle`, `d6cube`, `dfl001`, and
-`modszk1` are explicitly retained as current simplex limits/stalls.
+solvers. It records 47 agreeing optima; `cycle`, `d6cube`, and `dfl001` remain
+explicitly retained as current simplex limits/stalls.
 
 The focused anti-degeneracy follow-up is [NETLIB_DEGENERACY](bench/results/NETLIB_DEGENERACY.md).
-It records `cycle` reaching the independently measured HiGHS optimum within
-the fixed five-second protocol, while retaining the remaining three limits.
+It records `cycle` and `modszk1` reaching independently measured HiGHS optima
+with the revised default refactor interval, while retaining two limits.
 
 The first native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
 It proves 3/5 small official MIPLIB instances within a fixed 20-second limit and

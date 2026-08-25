@@ -161,7 +161,9 @@ void sk_options_default(sk_options *o)
     o->node_limit = 0;
     o->presolve = 1;
     o->scaling = 1;
-    o->refactor_interval = 100;
+    /* Rebuild the sparse basis often enough to prevent eta-update drift on
+       numerically delicate Netlib models (notably modszk1). */
+    o->refactor_interval = 50;
     o->verbosity = 1;
     o->threads = 1;
     o->mip_gap_abs = 1e-9;

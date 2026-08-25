@@ -12,14 +12,14 @@ five-second wall limit.
 
 | Instance | Status | Objective at stop | Primal infeasibility | Dual infeasibility | Iterations | Seconds |
 |---|---|---:|---:|---:|---:|---:|
-| cycle | optimal | -5.22639302489 | 2.471e-11 | 3.085e-07 | 3224 | 1.075548 |
-| d6cube | time limit | 343.164337309 | 3.638e-12 | 2.252e+02 | 8941 | 5.004574 |
-| dfl001 | time limit | 94356633.6649 | 1.010e+02 | 6.231e+07 | 3618 | 5.009222 |
-| modszk1 | time limit | 699998.447478 | 0.000e+00 | 1.041e+01 | 41974 | 5.000793 |
+| cycle | optimal | -5.22639302489 | 8.198e-10 | 1.929e-14 | 3428 | 0.999477 |
+| d6cube | time limit | 323.5 | 3.638e-12 | 9.367e+02 | 9886 | 5.004387 |
+| dfl001 | time limit | 55442369.5401 | 1.010e+02 | 5.015e+07 | 3085 | 5.008687 |
+| modszk1 | optimal | 320.619729064 | 1.337e-10 | 5.684e-14 | 995 | 0.119798 |
 
-The `cycle` result now agrees with the independently measured HiGHS objective
-`-5.226393024894102` and closes its native primal/dual certificate. The other
-three rows remain time limits and are not presented as optimality claims.
+The `cycle` and `modszk1` results agree with independently measured HiGHS
+objectives and close their native primal/dual certificates. The other two rows
+remain time limits and are not presented as optimality claims.
 This is a targeted regression record, not a replacement for the full Netlib
 comparison or a performance ranking.
 
