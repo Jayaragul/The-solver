@@ -36,6 +36,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   pseudocost branching, rounding heuristics, and best-bound backtracking.
   It reports `optimal` only after the proven bound closes the requested gap.
   Cuts, conflict analysis, parallel search, and MIQP remain future work.
+- QP PDHG uses diagonal row/column norm preconditioning so sparse models with
+  uneven constraint or Hessian scales do not inherit one globally throttled
+  step size.
 - Native interval presolve detects contradictory column bounds and row-activity
   intervals in `O(nnz + rows + columns)` before solving or branching.
 - CMake targets for native C smoke tests and optional CUDA smoke tests.

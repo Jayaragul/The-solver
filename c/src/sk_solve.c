@@ -122,7 +122,8 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     const int check_every = 20;
     double *x = NULL, *x_new = NULL, *x_bar = NULL, *y = NULL, *y_new = NULL;
     double *activity = NULL, *gradient = NULL, *qx = NULL;
-    double tau, sigma, anorm, qnorm, start;
+    double *tau_vec = NULL, *sigma_vec = NULL;
+    double anorm, qnorm, start;
     int iteration, converged = 0;
     double dual_step = INFINITY;
 
@@ -147,29 +148,51 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     activity = (double *)calloc((size_t)r, sizeof(double));
     gradient = (double *)calloc((size_t)n, sizeof(double));
     if (m->Q) qx = (double *)calloc((size_t)n, sizeof(double));
+    tau_vec = (double *)calloc((size_t)n, sizeof(double));
+    sigma_vec = (double *)calloc((size_t)r, sizeof(double));
     if ((!x && n) || (!x_new && n) || (!x_bar && n) || (!y && r) || (!y_new && r) ||
-        (!activity && r) || (!gradient && n) || (m->Q && !qx)) goto memory_failure;
+        (!activity && r) || (!gradient && n) || (m->Q && !qx) ||
+        (!tau_vec && n) || (!sigma_vec && r)) goto memory_failure;
     for (iteration = 0; iteration < n; ++iteration) x[iteration] = x_bar[iteration] = clamp_value(0.0, m->clow[iteration], m->cupp[iteration]);
 
     anorm = matrix_norm_bound(&m->A);
     qnorm = matrix_norm_bound(m->Q);
     if (!isfinite(anorm) || !isfinite(qnorm)) goto memory_failure;
-    tau = 0.5 / (1.0 + qnorm + anorm);
-    sigma = 0.5 / (1.0 + anorm);
+    /* Diagonal preconditioning: each row and variable gets a step based on
+       its local absolute operator mass.  The 0.5 safety factor keeps the
+       primal-dual product conservative while avoiding a single large row or
+       Hessian column throttling the entire sparse QP. */
+    {
+        double *row_mass = (double *)calloc((size_t)r, sizeof(double));
+        double *col_mass = (double *)calloc((size_t)n, sizeof(double));
+        int j, p;
+        if ((!row_mass && r) || (!col_mass && n)) { free(row_mass); free(col_mass); goto memory_failure; }
+        for (j = 0; j < n; ++j) {
+            for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) {
+                row_mass[m->A.i[p]] += fabs(m->A.x[p]);
+                col_mass[j] += fabs(m->A.x[p]);
+            }
+            if (m->Q) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+                col_mass[j] += fabs(m->Q->x[p]);
+        }
+        for (j = 0; j < n; ++j) tau_vec[j] = 0.5 / (1.0 + col_mass[j]);
+        for (j = 0; j < r; ++j) sigma_vec[j] = 0.5 / (1.0 + row_mass[j]);
+        free(row_mass); free(col_mass);
+    }
     start = sk_wall_seconds();
     for (iteration = 1; iteration <= maximum_iterations; ++iteration) {
         int j;
         csc_mv(&m->A, x_bar, activity);
         for (j = 0; j < r; ++j) {
-            const double trial = y[j] + sigma * activity[j];
-            y_new[j] = trial - sigma * clamp_value(trial / sigma, m->rlow[j], m->rupp[j]);
+            const double trial = y[j] + sigma_vec[j] * activity[j];
+            y_new[j] = trial - sigma_vec[j] * clamp_value(trial / sigma_vec[j], m->rlow[j], m->rupp[j]);
         }
         dual_step = 0.0;
         for (j = 0; j < r; ++j) if (fabs(y_new[j] - y[j]) > dual_step) dual_step = fabs(y_new[j] - y[j]);
         csc_tmv(&m->A, y_new, gradient);
         if (m->Q) csc_mv(m->Q, x, qx);
         for (j = 0; j < n; ++j) {
-            x_new[j] = clamp_value(x[j] - tau * (m->c[j] + (m->Q ? qx[j] : 0.0) + gradient[j]), m->clow[j], m->cupp[j]);
+            x_new[j] = clamp_value(x[j] - tau_vec[j] * (m->c[j] + (m->Q ? qx[j] : 0.0) + gradient[j]), m->clow[j], m->cupp[j]);
             x_bar[j] = 2.0 * x_new[j] - x[j];
         }
         memcpy(x, x_new, (size_t)n * sizeof(double));
@@ -213,11 +236,12 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         s->result = o->time_limit > 0.0 && s->solve_seconds >= o->time_limit
             ? SK_RESULT_TIME_LIMIT : SK_RESULT_ITERATION_LIMIT;
     }
-    free(x_new); free(x_bar); free(y_new); free(gradient); free(qx);
+    free(x_new); free(x_bar); free(y_new); free(gradient); free(qx); free(tau_vec); free(sigma_vec);
     return SK_OK;
 
 memory_failure:
     free(x); free(x_new); free(x_bar); free(y); free(y_new); free(activity); free(gradient); free(qx);
+    free(tau_vec); free(sigma_vec);
     return SK_ERR_MEMORY;
 }
 
