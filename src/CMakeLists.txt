@@ -21,6 +21,8 @@ add_library(sihps_core STATIC
   lp/Presolve.cpp
   lp/Scaling.cpp
   lp/Simplex.cpp
+  milp/MilpProblem.cpp
+  milp/MilpSolver.cpp
 )
 
 target_include_directories(sihps_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

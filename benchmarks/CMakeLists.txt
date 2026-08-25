@@ -69,3 +69,7 @@ sihps_set_warnings(diag_first_order)
 add_executable(validate_crossmethod validate_crossmethod.cpp)
 target_link_libraries(validate_crossmethod PRIVATE sihps_core)
 sihps_set_warnings(validate_crossmethod)
+
+add_executable(bench_milp bench_milp.cpp)
+target_link_libraries(bench_milp PRIVATE sihps_core)
+sihps_set_warnings(bench_milp)

@@ -13,6 +13,7 @@ add_executable(sihps_tests
   lp/test_presolve.cpp
   lp/test_scaling.cpp
   lp/test_simplex.cpp
+  milp/test_milp.cpp
 )
 
 target_link_libraries(sihps_tests PRIVATE sihps_core)

@@ -130,7 +130,7 @@ A `reason` / `reason_row` / `reason_col` / `reason_pass` field on `PresolveResul
 
 **Owns:** the B&B search tree (open-node structure), the global incumbent, and the global best bound.
 **Consumes:** repeated `LPResult`s from the LP Engine (one per node), branching decisions, cut pool state.
-**Produces:** the final `Solution` or a proof of infeasibility/unboundedness, plus solve statistics (node count, gap history) required for benchmarking per prompt.md's Benchmark Strategy.
+**Produces:** the final `Solution` or an explicit non-optimal status, plus solve statistics (node count, best bound, gap history) required for benchmarking per prompt.md's Benchmark Strategy. The first implementation is `src/milp/` and uses deterministic best-bound branch-and-bound with most-fractional branching, certified simplex relaxations, and incumbent verification.
 **Full design:** `MILP.md`. **Hard architectural constraint (prompt.md, non-negotiable):** branch-and-bound control flow — node creation, node selection, branching-variable choice, incumbent bookkeeping — is 100% CPU-resident. The GPU never controls the tree; it may only accelerate arithmetic *inside* a node's LP solve, per the responsibility matrix in `CPU_GPU.md`.
 
 ### 2.9 Cut Management
@@ -138,7 +138,7 @@ A `reason` / `reason_row` / `reason_col` / `reason_pass` field on `PresolveResul
 **Owns:** the cut pool (generated valid inequalities, active/inactive status, age-based eviction policy).
 **Consumes:** a fractional LP solution at a B&B node.
 **Produces:** violated cuts to append to the node's local relaxation.
-**Residency:** CPU (separation is control-flow-heavy; see SOTA.md kill-shot KS-5). **v1 scope note:** per `MILP.md`'s incremental-implementation decision, this module ships as an architectural stub in the first working B&B milestone — MIR/flow-cover cut separation (KS-5) is a RESEARCH HYPOTHESIS, not yet validated, and is added only after the un-cut B&B core is benchmarked (prompt.md's development rule: "do not move to the next subsystem until the current one is internally consistent").
+**Residency:** CPU (separation is control-flow-heavy; see SOTA.md kill-shot KS-5). **v1 scope note:** this remains an explicit no-cut seam in the first working B&B milestone — MIR/flow-cover separation (KS-5) is a RESEARCH HYPOTHESIS, not yet validated, and is added only after the un-cut B&B core is benchmarked.
 
 ### 2.10 Primal Heuristics
 

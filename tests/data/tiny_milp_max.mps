@@ -1,0 +1,17 @@
+NAME          TINYMIPMAX
+OBJSENSE
+ MAX
+ROWS
+ N  OBJ
+ L  CAP
+COLUMNS
+ MARK0000  'MARKER'  'INTORG'
+ X1        OBJ        10       CAP        6
+ MARK0001  'MARKER'  'INTEND'
+ X2        OBJ         9       CAP        5
+RHS
+ RHS1      CAP         7
+BOUNDS
+ BV BND1   X1
+ BV BND1   X2
+ENDATA

@@ -1,5 +1,6 @@
 #include "MpsReader.hpp"
 
+#include <cctype>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -20,6 +21,14 @@ std::vector<std::string> tokenize(const std::string& line) {
         tokens.push_back(tok);
     }
     return tokens;
+}
+
+std::string normalized_token(std::string token) {
+    if (token.size() >= 2 && token.front() == '\'' && token.back() == '\'') {
+        token = token.substr(1, token.size() - 2);
+    }
+    for (char& c : token) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return token;
 }
 
 bool is_section_header(const std::string& line, const std::string& first_token) {
@@ -46,6 +55,7 @@ MpsModel read_mps_file(const std::string& path) {
     std::vector<bool> has_explicit_lower; // tracks LO/FX/FR/MI/BV, for the negative-UP convention
     std::string section;
     std::string line;
+    bool integer_section = false;
 
     while (std::getline(in, line)) {
         if (line.empty() || line[0] == '*') {
@@ -89,6 +99,20 @@ MpsModel read_mps_file(const std::string& path) {
             model.has_range.push_back(false);
 
         } else if (section == "COLUMNS") {
+            // Free-format MPS integer markers are commonly written as
+            // `MARK0000 'MARKER' 'INTORG'` and `MARK0001 'MARKER'
+            // 'INTEND'. They are records, not columns.
+            if (tokens.size() >= 3 && normalized_token(tokens[1]) == "MARKER") {
+                const std::string marker = normalized_token(tokens[2]);
+                if (marker == "INTORG") {
+                    integer_section = true;
+                } else if (marker == "INTEND") {
+                    integer_section = false;
+                } else {
+                    throw std::runtime_error("MpsReader: unknown COLUMNS marker: " + line);
+                }
+                continue;
+            }
             if (tokens.size() < 3) {
                 throw std::runtime_error("MpsReader: malformed COLUMNS line: " + line);
             }
@@ -102,9 +126,15 @@ MpsModel read_mps_file(const std::string& path) {
                 model.obj.push_back(0.0);
                 model.col_lower.push_back(0.0);
                 model.col_upper.push_back(kInf);
+                model.col_types.push_back(integer_section ? VariableType::INTEGER
+                                                           : VariableType::CONTINUOUS);
                 has_explicit_lower.push_back(false);
             } else {
                 c = cit->second;
+                if (integer_section &&
+                    model.col_types[static_cast<std::size_t>(c)] == VariableType::CONTINUOUS) {
+                    model.col_types[static_cast<std::size_t>(c)] = VariableType::INTEGER;
+                }
             }
 
             for (std::size_t k = 1; k + 1 < tokens.size(); k += 2) {
@@ -167,6 +197,16 @@ MpsModel read_mps_file(const std::string& path) {
                 model.has_range[static_cast<std::size_t>(rit->second)] = true;
             }
 
+        } else if (section == "OBJSENSE") {
+            const std::string sense = normalized_token(tokens[0]);
+            if (sense == "MIN") {
+                model.objective_sense = ObjectiveSense::MINIMIZE;
+            } else if (sense == "MAX") {
+                model.objective_sense = ObjectiveSense::MAXIMIZE;
+            } else {
+                throw std::runtime_error("MpsReader: unknown objective sense: " + line);
+            }
+
         } else if (section == "BOUNDS") {
             if (tokens.size() < 3) {
                 throw std::runtime_error("MpsReader: malformed BOUNDS line: " + line);
@@ -205,9 +245,17 @@ MpsModel read_mps_file(const std::string& path) {
                 has_explicit_lower[c] = true;
             } else if (type == "PL") {
                 model.col_upper[c] = kInf;
+            } else if (type == "LI") {
+                model.col_lower[c] = value;
+                model.col_types[c] = VariableType::INTEGER;
+                has_explicit_lower[c] = true;
+            } else if (type == "UI") {
+                model.col_upper[c] = value;
+                model.col_types[c] = VariableType::INTEGER;
             } else if (type == "BV") {
                 model.col_lower[c] = 0.0;
                 model.col_upper[c] = 1.0;
+                model.col_types[c] = VariableType::BINARY;
                 has_explicit_lower[c] = true;
             } else {
                 throw std::runtime_error("MpsReader: unknown BOUNDS type: " + type);
@@ -218,6 +266,10 @@ MpsModel read_mps_file(const std::string& path) {
 
     if (model.rhs.empty() && model.n_rows > 0) {
         model.rhs.assign(static_cast<std::size_t>(model.n_rows), 0.0);
+    }
+
+    if (integer_section) {
+        throw std::runtime_error("MpsReader: unterminated INTORG/INTEND marker section");
     }
 
     return model;

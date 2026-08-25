@@ -1,6 +1,9 @@
 # MILP Engine Architecture (Branch-and-Bound, Cuts, Symmetry)
 
-**Status:** PHASE 2 architecture. Per prompt.md §2.8, branch-and-bound control flow is 100% CPU-resident — this is a hard constraint, not a default that could later move to GPU. Per §2.9, symmetry-handling machinery (specifically orbital branching) is evaluated against actual refinery scheduling structure rather than implemented because it was named in the original brief.
+**Status:** PHASE 3 implementation. The first working MILP engine is a
+CPU-resident, deterministic branch-and-bound solver over certified simplex
+relaxations. Cuts, warm starts, and advanced branching are explicit follow-up
+milestones; they are not silently represented as implemented features.
 
 ---
 
@@ -25,7 +28,17 @@ struct BnBNode {
 
 ### 1.3 Branching
 
-**v1 policy: reliability branching** (strong branching for variables whose pseudocost history is not yet reliable, pseudocost branching otherwise) — SOTA.md §1.2 documents this as the de facto default across modern commercial and open-source solvers, making it the best-evidenced starting point rather than a novel choice.
+**Implemented v1 policy: most-fractional branching.** At each fractional LP
+solution, the integer variable with the largest `min(fractional_part,
+1-fractional_part)` score is selected, with the original column index as the
+deterministic tie-break. This is deliberately a simple, auditable baseline;
+it is not mislabeled as reliability branching.
+
+Reliability branching remains the next branching milestone. Strong branching
+and pseudocost updates must be added together with their own accounting and
+regression benchmark before the policy is changed, because an unmeasured
+candidate-evaluation budget can make the tree smaller while making total solve
+time worse.
 
 - Strong branching evaluates a small set of fractional candidates by actually solving (a bounded number of iterations of) both child LPs before committing — expensive per node, cheap in node count.
 - Pseudocost branching uses historical objective-degradation-per-unit-fractionality statistics, cheap per node, unreliable until enough history accumulates.
@@ -35,7 +48,11 @@ struct BnBNode {
 
 ### 1.4 Node presolve
 
-Each node re-applies a restricted subset of the presolve rules (`SYSTEM.md` §2.3) — specifically bound propagation given the node's accumulated `deltas` — to tighten bounds locally before the LP re-solve. Node presolve reuses the *same* reduction-rule implementations as global presolve (no duplicated logic), applied to a node-local view rather than the full model.
+Each node materializes its accumulated bound deltas into a reusable LP
+workspace and re-applies the existing presolve implementation before the LP
+re-solve. The sparse matrix is copied once for the solve and then reused;
+node creation does not copy the matrix. This keeps node state proportional to
+the bound-change chain rather than to the full model.
 
 ## 2. Cuts (v1 scope: architectural stub)
 
@@ -70,7 +87,28 @@ std::vector<Constraint> break_symmetry(const std::vector<SymmetryGroup>& declare
 
 ## 4. Primal Heuristics and Incumbent Management
 
-v1 includes a single trivial rounding heuristic (round the fractional LP solution to the nearest bound-respecting integer point, accept if feasible) — RENS/feasibility-pump/diving-class heuristics (SOTA.md §1.1) are deferred, consistent with the cuts decision in §2: validate the core search first, add heuristics once there is a baseline to measure their marginal benefit against. Incumbent management is a single global best-solution record (`SYSTEM.md` §2.11), single-writer, no concurrency primitives — v1's B&B is single-threaded; parallel tree search is out of scope until the sequential core is benchmarked.
+The implementation includes a safe rounding heuristic: integer variables are
+rounded and the resulting point is accepted only after a fresh original-model
+feasibility and integrality check. A failed heuristic never changes the
+search state. RENS, feasibility pump, and diving heuristics remain deferred.
+Incumbent management is a single global best-solution record, single-writer,
+with no concurrency primitives; the B&B control loop is single-threaded.
+
+### 4.1 Correctness and termination contract
+
+- Every node bound comes from the certified CPU simplex path. HYBRID and
+  FIRST_ORDER preferences are overridden for relaxations because an
+  approximate point is not a safe proof bound.
+- A node is pruned only by an infeasible relaxation or by a lower bound that
+  cannot improve the incumbent within the configured objective tolerance.
+- An incumbent is stored only after checking original row bounds, variable
+  bounds, and exact integer/binary membership after rounding.
+- `OPTIMAL` means the open-node queue was exhausted. `NODE_LIMIT` and
+  `TIME_LIMIT` are never relabeled as optimal merely because an incumbent
+  exists. An unbounded LP relaxation with integer variables is reported as
+  `UNBOUNDED_RELAXATION`, not as a proof that the MILP itself is unbounded.
+- MPS `INTORG`/`INTEND`, `LI`, `UI`, `BV`, and `OBJSENSE MAX` metadata are
+  preserved by the parser and converted into the MILP model contract.
 
 ## 5. GPU Involvement Inside a Node (restated boundary)
 

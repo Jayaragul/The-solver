@@ -8,6 +8,11 @@
 
 namespace sihps {
 
+// Integrality metadata is kept in the parsed model so it cannot be lost
+// when an MPS instance is converted into the LP relaxation used by MILP.
+enum class VariableType { CONTINUOUS, INTEGER, BINARY };
+enum class ObjectiveSense { MINIMIZE, MAXIMIZE };
+
 // Result of parsing an MPS file: everything needed to build a bounded LP
 // -- constraint matrix, objective, row types, RANGES, and column BOUNDS.
 // Row/column indices are assigned in first-appearance order within the
@@ -15,6 +20,7 @@ namespace sihps {
 struct MpsModel {
     std::string name;
     std::string objective_row_name;
+    ObjectiveSense objective_sense = ObjectiveSense::MINIMIZE;
 
     std::int32_t n_rows = 0; // constraint rows only; the objective row is excluded
     std::int32_t n_cols = 0;
@@ -37,6 +43,7 @@ struct MpsModel {
     // of [0, +infinity) for a column with no BOUNDS entry.
     std::vector<double> col_lower; // size n_cols
     std::vector<double> col_upper; // size n_cols
+    std::vector<VariableType> col_types; // size n_cols; defaults to CONTINUOUS
 
     std::vector<Triplet> constraint_triplets; // rows/cols index into the above
 };
