@@ -31,23 +31,18 @@ __global__ void dual_update_kernel(
     new_dual[i] = trial - sigma * project_box(trial / sigma, lower[i], upper[i]);
 }
 
-__global__ void primal_update_kernel(
+__global__ void primal_update_extrapolate_kernel(
     int n, double tau, const double* old_x, const double* cost,
     const double* gradient, const double* quadratic_diagonal,
     const double* lower, const double* upper,
-    double* new_x) {
+    double theta, double* new_x, double* extrapolated) {
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     const double curvature = quadratic_diagonal == nullptr ? 0.0 : quadratic_diagonal[i];
     const double trial = (old_x[i] - tau * (cost[i] + gradient[i])) / (1.0 + tau * curvature);
-    new_x[i] = project_box(trial, lower[i], upper[i]);
-}
-
-__global__ void extrapolate_kernel(
-    int n, double theta, const double* old_x, const double* new_x, double* extrapolated) {
-    const int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n) return;
-    extrapolated[i] = new_x[i] + theta * (new_x[i] - old_x[i]);
+    const double next = project_box(trial, lower[i], upper[i]);
+    new_x[i] = next;
+    extrapolated[i] = next + theta * (next - old_x[i]);
 }
 
 int check_cuda() {
@@ -176,9 +171,9 @@ int solve_diagonal_qp(
         }
         if (sankhya_cuda_spmv_transpose_device_f64(matrix, d_y_new, d_gradient) != 0) { cleanup(); return -1; }
         if (cols > 0) {
-            primal_update_kernel<<<(cols + block - 1) / block, block>>>(cols, settings.tau, d_x, d_c, d_gradient, d_quadratic_diagonal, d_col_lower, d_col_upper, d_x_new);
-            if (cudaGetLastError() != cudaSuccess) { cleanup(); return -1; }
-            extrapolate_kernel<<<(cols + block - 1) / block, block>>>(cols, settings.theta, d_x, d_x_new, d_x_bar);
+            primal_update_extrapolate_kernel<<<(cols + block - 1) / block, block>>>(
+                cols, settings.tau, d_x, d_c, d_gradient, d_quadratic_diagonal,
+                d_col_lower, d_col_upper, settings.theta, d_x_new, d_x_bar);
             if (cudaGetLastError() != cudaSuccess) { cleanup(); return -1; }
         }
         std::swap(d_x, d_x_new);
