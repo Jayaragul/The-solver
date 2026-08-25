@@ -166,6 +166,10 @@ The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS
 It records one proven optimum and retains nine QP limits; QPLIB remains an
 explicitly unclaimed future benchmark.
 
+The measured native CPU parallel check is [QP_THREADS](bench/results/QP_THREADS.md);
+it records a 6.4% four-thread gain on a fixed sparse-QP workload and an
+eight-thread oversubscription regression.
+
 ## Benchmark contract
 
 The benchmark protocol is defined in [`bench/PROTOCOL.md`](bench/PROTOCOL.md).
