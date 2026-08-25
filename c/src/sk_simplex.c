@@ -137,6 +137,41 @@ static sk_status spx_singleton_presolve(const sk_model *m, const sk_options *o,
     return SK_OK;
 }
 
+/* Restore the row multiplier hidden by singleton bound tightening. The primal
+ * x is already valid in the original model; when a singleton row is active,
+ * its multiplier is the only available degree of freedom that can remove a
+ * reduced-cost residual introduced by the tightened working bound. The
+ * independent verifier remains the acceptance gate after this repair. */
+static void spx_repair_singleton_duals(const sk_model *m, sk_solution *s)
+{
+    int *count, *row_col, *row_pos;
+    int i, j, p;
+    if (!m || !s || !s->x || !s->y || !s->rc || !s->rowact) return;
+    count = (int *)calloc((size_t)m->nrow, sizeof(int));
+    row_col = (int *)malloc((size_t)m->nrow * sizeof(int));
+    row_pos = (int *)malloc((size_t)m->nrow * sizeof(int));
+    if ((!count && m->nrow) || (!row_col && m->nrow) || (!row_pos && m->nrow)) {
+        free(count); free(row_col); free(row_pos); return;
+    }
+    for (j = 0; j < m->ncol; ++j) for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p) {
+        const int row = m->A.i[p];
+        if (fabs(m->A.x[p]) <= SPX_DROP_TOL) continue;
+        if (count[row]++ == 0) { row_col[row] = j; row_pos[row] = p; }
+    }
+    for (i = 0; i < m->nrow; ++i) if (count[i] == 1) {
+        const int col = row_col[i];
+        const double a = m->A.x[row_pos[i]];
+        const int at_lower = !SK_IS_NEG_INF(m->rlow[i]) && fabs(s->rowact[i] - m->rlow[i]) <= 1e-7;
+        const int at_upper = !SK_IS_INF(m->rupp[i]) && fabs(s->rowact[i] - m->rupp[i]) <= 1e-7;
+        const int x_lower = !SK_IS_NEG_INF(m->clow[col]) && fabs(s->x[col] - m->clow[col]) <= 1e-7;
+        const int x_upper = !SK_IS_INF(m->cupp[col]) && fabs(s->x[col] - m->cupp[col]) <= 1e-7;
+        if ((at_lower || at_upper) && (!x_lower && !x_upper ||
+            (x_lower && s->rc[col] < -1e-7) || (x_upper && s->rc[col] > 1e-7)))
+            s->y[i] -= s->rc[col] / a;
+    }
+    free(count); free(row_col); free(row_pos);
+}
+
 /* Build M = [A  -I] and the working bound/cost arrays. */
 static sk_status spx_build(spx *S, const sk_model *m, const sk_options *o)
 {
@@ -690,7 +725,17 @@ sk_status sk_simplex_solve(const sk_model *m, const sk_options *o,
     /* Residuals and reduced costs come from the independent checker, never
      * from solver-internal state. */
     sk_verify(m, s);
-    if (s->result == SK_RESULT_OPTIMAL && s->primal_infeasibility > 1e-6)
+    if (s->result == SK_RESULT_OPTIMAL) {
+        spx_repair_singleton_duals(m, s);
+        sk_verify(m, s);
+    }
+    /* A reduced-cost stopping test can survive basis-factorization drift.
+       Never publish an optimal LP unless the independent primal/dual/gap
+       certificate agrees with the requested tolerances. */
+    if (s->result == SK_RESULT_OPTIMAL &&
+        (s->primal_infeasibility > 100.0 * (o->primal_tol > 0.0 ? o->primal_tol : 1e-7) ||
+         s->dual_infeasibility > 100.0 * (o->dual_tol > 0.0 ? o->dual_tol : 1e-7) ||
+         s->complementarity > 100.0 * (o->dual_tol > 0.0 ? o->dual_tol : 1e-7)))
         s->result = SK_RESULT_NUMERIC_FAILURE;
     return SK_OK;
 }
