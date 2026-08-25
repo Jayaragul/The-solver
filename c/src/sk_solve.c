@@ -6,6 +6,7 @@
  * approximate continuous-QP path; simplex, IPM and MILP dispatch are added
  * only when their implementations and certificates exist. */
 #include "sankhya.h"
+#include "sk_milp.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -309,51 +310,10 @@ static void mip_branch(mip_search *search)
 
 sk_status sk_solve(const sk_model *m, const sk_options *options, sk_solution *s)
 {
-    sk_options defaults;
-    const sk_options *o = options;
-    mip_search search;
-    int j;
     if (!m || !s) return SK_ERR_ARG;
     if (sk_model_num_integer(m) == 0) return solve_continuous(m, options, s);
     /* This is MILP branch-and-bound. MIQP needs reliable convex-QP bounds and
        its own certificate path, so it remains intentionally unsupported. */
     if (m->Q) return SK_ERR_UNSUPPORTED;
-    if (!o) { sk_options_default(&defaults); o = &defaults; }
-    if (o->primal_tol <= 0.0 || o->dual_tol <= 0.0) return SK_ERR_ARG;
-    memset(&search, 0, sizeof(search));
-    search.model = m; search.options = o;
-    search.node_limit = o->node_limit > 0 ? o->node_limit : 10000;
-    search.lower = (double *)malloc((size_t)m->ncol * sizeof(double));
-    search.upper = (double *)malloc((size_t)m->ncol * sizeof(double));
-    search.continuous = (unsigned char *)calloc((size_t)m->ncol, sizeof(unsigned char));
-    search.best_x = (double *)malloc((size_t)m->ncol * sizeof(double));
-    if ((!search.lower && m->ncol) || (!search.upper && m->ncol) || (!search.continuous && m->ncol) || (!search.best_x && m->ncol)) {
-        free(search.lower); free(search.upper); free(search.continuous); free(search.best_x); return SK_ERR_MEMORY;
-    }
-    for (j = 0; j < m->ncol; ++j) {
-        if (m->vartype[j] == SK_INTEGER && (SK_IS_NEG_INF(m->clow[j]) || SK_IS_INF(m->cupp[j]))) {
-            free(search.lower); free(search.upper); free(search.continuous); free(search.best_x); return SK_ERR_UNSUPPORTED;
-        }
-        search.lower[j] = m->clow[j]; search.upper[j] = m->cupp[j];
-    }
-    search.best_objective = INFINITY;
-    search.start = sk_wall_seconds();
-    mip_branch(&search);
-    sk_solution_init(s);
-    s->nodes = search.nodes;
-    s->solve_seconds = sk_wall_seconds() - search.start;
-    if (isfinite(search.best_objective)) {
-        s->x = search.best_x; search.best_x = NULL;
-        s->ncol = m->ncol; s->nrow = m->nrow;
-        s->objective = search.best_objective;
-        s->mip_gap = search.exhausted ? INFINITY : 0.0;
-        /* Because the LP relaxations are first-order approximate, an
-           exhausted-free tree is a practical solution proof only, not an
-           exact certificate. GAP_LIMIT communicates that distinction. */
-        s->result = SK_RESULT_GAP_LIMIT;
-    } else {
-        s->result = search.exhausted ? SK_RESULT_ITERATION_LIMIT : SK_RESULT_INFEASIBLE;
-    }
-    free(search.lower); free(search.upper); free(search.continuous); free(search.best_x);
-    return SK_OK;
+    return sk_milp_solve(m, options, s, NULL);
 }
