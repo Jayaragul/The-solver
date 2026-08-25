@@ -234,7 +234,8 @@ extern "C" int sankhya_cuda_spmv_f64(
     csr_spmv_f64_kernel<<<grid_size, block_size>>>(rows, device.row_offsets,
         device.column_indices, device.values, device.x, device.y);
     if ((error = cudaGetLastError()) != cudaSuccess) return fail("CSR SpMV launch", error);
-    if ((error = cudaDeviceSynchronize()) != cudaSuccess) return fail("CSR SpMV synchronize", error);
+    /* The blocking device-to-host copy below provides the required stream
+       completion and also reports any asynchronous kernel failure. */
     if ((error = cudaMemcpy(y, device.y, y_bytes, cudaMemcpyDeviceToHost)) != cudaSuccess)
         return fail("cudaMemcpy y", error);
     return 0;
@@ -266,9 +267,6 @@ extern "C" int sankhya_cuda_axpy_f64(int n, double alpha, const double* x, doubl
     axpy_f64_kernel<<<(n + block_size - 1) / block_size, block_size>>>(n, alpha, device_x, device_y);
     if ((error = cudaGetLastError()) != cudaSuccess) {
         cudaFree(device_x); cudaFree(device_y); return fail("AXPY launch", error);
-    }
-    if ((error = cudaDeviceSynchronize()) != cudaSuccess) {
-        cudaFree(device_x); cudaFree(device_y); return fail("AXPY synchronize", error);
     }
     error = cudaMemcpy(y, device_y, sizeof(double) * static_cast<size_t>(n), cudaMemcpyDeviceToHost);
     cudaFree(device_x); cudaFree(device_y);
