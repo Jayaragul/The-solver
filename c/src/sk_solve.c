@@ -171,6 +171,44 @@ static int qp_diagonal_unconstrained(const sk_model *m, const sk_options *o,
 
 static int qp_dense_solve(double *a, double *b, int n);
 
+static int qp_psd_check(const sk_model *m)
+{
+    int n = m->ncol, i, j, k, p;
+    double *h = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
+    double *l = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
+    if ((!h && n) || (!l && n)) { free(h); free(l); return 0; }
+    for (j = 0; j < n; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+        h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
+    /* Work with the symmetric part; the public Q contract is symmetric, but
+       averaging also makes the guard conservative for hand-built models. */
+    for (i = 0; i < n; ++i) for (j = i; j < n; ++j) {
+        double v = 0.5 * (h[(size_t)i * n + j] + h[(size_t)j * n + i]);
+        h[(size_t)i * n + j] = h[(size_t)j * n + i] = v;
+    }
+    for (i = 0; i < n; ++i) {
+        double d = h[(size_t)i * n + i];
+        for (k = 0; k < i; ++k) d -= l[(size_t)i * n + k] * l[(size_t)i * n + k];
+        if (d < -1e-10 * (1.0 + fabs(h[(size_t)i * n + i]))) { free(h); free(l); return 0; }
+        if (d > 1e-12 * (1.0 + fabs(h[(size_t)i * n + i]))) {
+            l[(size_t)i * n + i] = sqrt(d);
+            for (j = i + 1; j < n; ++j) {
+                double v = h[(size_t)j * n + i];
+                for (k = 0; k < i; ++k) v -= l[(size_t)j * n + k] * l[(size_t)i * n + k];
+                l[(size_t)j * n + i] = v / l[(size_t)i * n + i];
+            }
+        } else {
+            for (j = i + 1; j < n; ++j) {
+                double v = h[(size_t)j * n + i];
+                for (k = 0; k < i; ++k) v -= l[(size_t)j * n + k] * l[(size_t)i * n + k];
+                if (fabs(v) > 1e-9 * (1.0 + fabs(h[(size_t)j * n + i]))) {
+                    free(h); free(l); return 0;
+                }
+            }
+        }
+    }
+    free(h); free(l); return 1;
+}
+
 /* Exact KKT solve for small unconstrained/equality-constrained QPs without
  * variable bounds.
  * This is deliberately guarded: redundant constraints or an indefinite
@@ -185,7 +223,7 @@ static int qp_equality_kkt(const sk_model *m, const sk_options *o, sk_solution *
     for (i = 0; i < m->nrow; ++i)
         if (SK_IS_NEG_INF(m->rlow[i]) || SK_IS_INF(m->rupp[i]) ||
             fabs(m->rlow[i] - m->rupp[i]) > 1e-9) { equality = 0; break; }
-    if (!equality || (m->nrow == 0 && m->A.p[m->ncol] != 0)) return 0;
+    if (!equality || (m->nrow == 0 && m->A.p[m->ncol] != 0) || !qp_psd_check(m)) return 0;
     dim = m->ncol + m->nrow;
     kmat = (double *)calloc((size_t)dim * (size_t)dim, sizeof(double));
     rhs = (double *)calloc((size_t)dim, sizeof(double));
@@ -413,6 +451,10 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         s->primal_infeasibility = INFINITY;
         return SK_OK;
     }
+    /* KKT residuals certify a global minimum only for convex QPs.  For small
+       Hessians we can prove PSD directly; reject indefinite input rather than
+       returning a merely stationary PDHG point as `optimal`. */
+    if (m->Q && n <= 512 && !qp_psd_check(m)) return SK_ERR_UNSUPPORTED;
     if (m->Q) {
         int fast = qp_diagonal_unconstrained(m, o, s);
         if (fast == 1) return SK_OK;
