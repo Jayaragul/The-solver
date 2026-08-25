@@ -131,6 +131,21 @@ int main(int argc, char** argv)
     std::vector<int> offsets, indices;
     std::vector<double> values;
     csc_to_csr(model.A, offsets, indices, values);
+    std::vector<double> primal_steps(static_cast<size_t>(model.ncol), 0.0);
+    std::vector<double> dual_steps(static_cast<size_t>(model.nrow), 0.0);
+    for (int column = 0; column < model.ncol; ++column) {
+        double mass = 0.0;
+        for (int p = model.A.p[column]; p < model.A.p[column + 1]; ++p) {
+            const double value = std::fabs(model.A.x[p]);
+            mass += value;
+            dual_steps[static_cast<size_t>(model.A.i[p])] += value;
+        }
+        if (model.Q) for (int p = model.Q->p[column]; p < model.Q->p[column + 1]; ++p)
+            mass += std::fabs(model.Q->x[p]);
+        primal_steps[static_cast<size_t>(column)] = 0.9 / (1.0 + mass);
+    }
+    for (int row = 0; row < model.nrow; ++row)
+        dual_steps[static_cast<size_t>(row)] = 0.9 / (1.0 + dual_steps[static_cast<size_t>(row)]);
     std::vector<int> q_offsets, q_indices;
     std::vector<double> q_values;
     if (!diagonal_hessian) csc_to_csr(*model.Q, q_offsets, q_indices, q_values);
@@ -153,12 +168,10 @@ int main(int argc, char** argv)
     std::vector<double> solution(static_cast<size_t>(model.ncol), 0.0);
     SankhyaCudaLPResult gpu_result{};
     const auto solve_start = std::chrono::steady_clock::now();
-    const int rc = diagonal_hessian
-        ? sankhya_cuda_diagonal_qp_pdhg(&matrix, diagonal.data(), model.c,
-            model.rlow, model.rupp, model.clow, model.cupp, settings,
-            solution.data(), &gpu_result)
-        : sankhya_cuda_sparse_qp_pdhg(&matrix, &hessian, model.c, model.rlow,
-            model.rupp, model.clow, model.cupp, settings, solution.data(), &gpu_result);
+    const int rc = sankhya_cuda_qp_pdhg_preconditioned(&matrix,
+        diagonal_hessian ? nullptr : &hessian, diagonal_hessian ? diagonal.data() : nullptr,
+        model.c, model.rlow, model.rupp, model.clow, model.cupp,
+        primal_steps.data(), dual_steps.data(), settings, solution.data(), &gpu_result);
     const double solve_seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - solve_start).count();
 

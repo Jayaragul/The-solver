@@ -101,6 +101,23 @@ SANKHYA_CUDA_API int sankhya_cuda_sparse_qp_pdhg(
     double* solution,
     SankhyaCudaLPResult* result);
 
+/* QP PDHG with caller-supplied positive diagonal primal/dual steps. Exactly
+   one of hessian or quadratic_diagonal may be non-null. */
+SANKHYA_CUDA_API int sankhya_cuda_qp_pdhg_preconditioned(
+    const SankhyaCudaCSR* matrix,
+    const SankhyaCudaCSR* hessian,
+    const double* quadratic_diagonal,
+    const double* c,
+    const double* row_lower,
+    const double* row_upper,
+    const double* col_lower,
+    const double* col_upper,
+    const double* primal_steps,
+    const double* dual_steps,
+    SankhyaCudaLPSettings settings,
+    double* solution,
+    SankhyaCudaLPResult* result);
+
 /* Return zero on success. All host pointers are ordinary CPU memory. */
 SANKHYA_CUDA_API int sankhya_cuda_spmv_f64(
     int rows,
