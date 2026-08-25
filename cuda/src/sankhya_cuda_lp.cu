@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -101,7 +102,7 @@ int solve_qp(
         row_upper == nullptr || col_lower == nullptr || col_upper == nullptr || solution == nullptr)
         return -1;
     if (settings.max_iterations <= 0 || settings.check_every <= 0 || settings.tau <= 0.0 ||
-        settings.sigma <= 0.0 || settings.theta < 0.0 || settings.theta > 1.0 || settings.tolerance <= 0.0)
+        settings.sigma <= 0.0 || settings.theta < 0.0 || settings.theta > 1.0 || settings.tolerance <= 0.0 || settings.time_limit < 0.0)
         return -1;
     if ((primal_steps == nullptr) != (dual_steps == nullptr)) return -1;
     const int rows = matrix->rows;
@@ -181,7 +182,12 @@ int solve_qp(
     std::vector<double> host_activity(static_cast<size_t>(rows));
     int have_previous_x = 0;
     int final_iteration = settings.max_iterations;
+    const auto started = std::chrono::steady_clock::now();
     for (int iteration = 1; iteration <= settings.max_iterations; ++iteration) {
+        if (settings.time_limit > 0.0 && iteration % settings.check_every == 1 &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() >= settings.time_limit) {
+            final_iteration = iteration - 1; result->status = 2; break;
+        }
         if (sankhya_cuda_spmv_device_f64(matrix, d_x_bar, d_activity) != 0) { cleanup(); return -1; }
         if (rows > 0) {
             dual_update_kernel<<<(rows + block - 1) / block, block>>>(rows, settings.sigma, d_y, d_activity, d_row_lower, d_row_upper, d_dual_steps, d_y_new);
@@ -236,7 +242,7 @@ int solve_qp(
             }
         }
     }
-    if (result->status != 0) result->status = 1;
+    if (result->status < 0) result->status = 1;
     result->iterations = final_iteration;
     if (cols > 0 && cudaMemcpy(solution, d_x, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
     cleanup();

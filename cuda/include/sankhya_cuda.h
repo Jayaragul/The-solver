@@ -46,10 +46,11 @@ typedef struct SankhyaCudaLPSettings {
     double sigma;
     double theta;
     double tolerance;
+    double time_limit; /* seconds, <=0 disables the wall-clock limit */
 } SankhyaCudaLPSettings;
 
 typedef struct SankhyaCudaLPResult {
-    int status; /* 0 approximate convergence, 1 iteration limit, negative error */
+    int status; /* 0 convergence, 1 iteration limit, 2 time limit, negative error */
     int iterations;
     double objective;
     double maximum_row_violation;

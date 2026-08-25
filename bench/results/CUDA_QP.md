@@ -22,6 +22,9 @@ build\\cmake-cuda\\cuda\\sankhya_qp_cuda.exe \\
   --iterations 100000 --tolerance 1e-5
 ```
 
+`sankhya_qp_cuda` also accepts `--time-limit S`; it reports status `2` when
+the bounded GPU run stops on that wall-clock limit.
+
 Measured on the local NVIDIA GeForce RTX 3050 Laptop GPU (CUDA 13.3):
 
 | Instance | Hessian | Status | Iterations | Objective | Primal inf | Seconds |

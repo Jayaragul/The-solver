@@ -85,7 +85,7 @@ bool small_psd_hessian(const sk_csc& q)
 void usage(const char* program)
 {
     std::fprintf(stderr,
-        "usage: %s model.qps [--iterations N] [--tau T] [--sigma S] "
+        "usage: %s model.qps [--iterations N] [--time-limit S] [--tau T] [--sigma S] "
         "[--theta T] [--tolerance E]\n", program);
 }
 
@@ -95,10 +95,11 @@ int main(int argc, char** argv)
 {
     if (argc < 2) { usage(argv[0]); return 64; }
     const char* path = argv[1];
-    SankhyaCudaLPSettings settings{100000, 100, 0.0, 0.0, 1.0, 1e-6};
+    SankhyaCudaLPSettings settings{100000, 100, 0.0, 0.0, 1.0, 1e-6, 0.0};
     for (int i = 2; i < argc; ++i) {
         if (i + 1 >= argc) { usage(argv[0]); return 64; }
         if      (!std::strcmp(argv[i], "--iterations")) settings.max_iterations = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--time-limit")) settings.time_limit = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--tau"))        settings.tau = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--sigma"))      settings.sigma = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--theta"))      settings.theta = std::atof(argv[++i]);
