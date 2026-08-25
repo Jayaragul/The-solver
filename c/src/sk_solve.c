@@ -118,6 +118,57 @@ static int interval_infeasible(const sk_model *m, double tolerance)
     return impossible;
 }
 
+/* Exact closed form for the separable case
+ *   min 1/2 sum(q_j x_j^2) + c_j x_j,  clow <= x <= cupp.
+ * Keeping this outside PDHG removes avoidable iteration work from common
+ * diagonal-QP kernels while retaining the independent verifier as the final
+ * acceptance gate.  Return 1 when solved, -1 when unbounded, and 0 when the
+ * model is not in the supported structure. */
+static int qp_diagonal_unconstrained(const sk_model *m, const sk_options *o,
+                                     sk_solution *s)
+{
+    int j, p, diagonal = 1;
+    double *diag = NULL;
+    if (!m->Q || m->A.p[m->ncol] != 0) return 0;
+    diag = (double *)calloc((size_t)m->ncol, sizeof(double));
+    if (!diag && m->ncol) return 0;
+    for (j = 0; j < m->ncol; ++j) for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p) {
+        if (m->Q->i[p] != j) { diagonal = 0; break; }
+        diag[j] += m->Q->x[p];
+    }
+    if (!diagonal) { free(diag); return 0; }
+    for (j = 0; j < m->ncol; ++j) if (diag[j] < -1e-12) {
+        free(diag); return 0; /* non-convex: leave the general path in charge */
+    }
+    sk_solution_init(s);
+    s->x = (double *)calloc((size_t)m->ncol + 1, sizeof(double));
+    s->y = (double *)calloc((size_t)m->nrow + 1, sizeof(double));
+    if ((!s->x && m->ncol) || (!s->y && m->nrow)) { sk_solution_free(s); free(diag); return 0; }
+    s->ncol = m->ncol; s->nrow = m->nrow; s->iterations = 0;
+    for (j = 0; j < m->ncol; ++j) {
+        double v;
+        if (diag[j] > 1e-14) v = -m->c[j] / diag[j];
+        else if (m->c[j] > 1e-14) {
+            if (SK_IS_NEG_INF(m->clow[j])) { sk_solution_free(s); free(diag); return -1; }
+            v = m->clow[j];
+        } else if (m->c[j] < -1e-14) {
+            if (SK_IS_INF(m->cupp[j])) { sk_solution_free(s); free(diag); return -1; }
+            v = m->cupp[j];
+        } else v = clamp_value(0.0, m->clow[j], m->cupp[j]);
+        s->x[j] = clamp_value(v, m->clow[j], m->cupp[j]);
+    }
+    if (sk_verify(m, s) != SK_OK || s->primal_infeasibility > 100.0 * o->primal_tol ||
+        s->dual_infeasibility > 100.0 * o->dual_tol ||
+        s->complementarity > 100.0 * o->dual_tol) {
+        sk_solution_free(s); free(diag); return 0;
+    }
+    s->dual_bound = s->objective;
+    s->mip_gap = 0.0;
+    s->result = SK_RESULT_OPTIMAL;
+    free(diag);
+    return 1;
+}
+
 /* Small-problem active-set polish for the first-order QP path.  PDHG is
  * deliberately retained for large sparse models, but on a small model a few
  * dense KKT corrections remove the long feasibility tail common to QPS
@@ -311,6 +362,16 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         s->ncol = n; s->nrow = r;
         s->primal_infeasibility = INFINITY;
         return SK_OK;
+    }
+    if (m->Q) {
+        int fast = qp_diagonal_unconstrained(m, o, s);
+        if (fast == 1) return SK_OK;
+        if (fast < 0) {
+            sk_solution_init(s);
+            s->result = SK_RESULT_UNBOUNDED;
+            s->ncol = n; s->nrow = r;
+            return SK_OK;
+        }
     }
 
     x = (double *)calloc((size_t)n, sizeof(double));

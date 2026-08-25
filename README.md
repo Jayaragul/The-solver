@@ -31,6 +31,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - CUDA PDHG specialization for convex *diagonal* QPs: `min 0.5 x'Dx + c'x`,
   where `D` is nonnegative diagonal, with the same linear and bound constraints.
   General sparse-Hessian QPS input is handled by the native CPU path, not CUDA.
+- Native CPU QP dispatch has an exact closed-form path for unconstrained
+  nonnegative diagonal Hessians; it returns an independently verified solution
+  without entering the iterative PDHG loop.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
   pseudocost branching, incumbent-driven objective bound propagation, rounding
@@ -76,7 +79,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native continuous-LP smoke solve | `min x`, `x >= 1` returns `x=1`, objective `1` | passed |
 | Native MILP branch-and-bound smoke | fractional binary knapsack branches to `(1,0)`, objective `-2`, zero proven gap; objective propagation reduces the search to 5 nodes | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1` before iterations | passed |
-| Full CMake test suite | 19/19 C and CUDA smoke tests passed | passed |
+| Full CMake test suite | 20/20 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
