@@ -113,9 +113,14 @@ int main(int argc, char** argv)
     if (settings.tau == 0.0 && settings.sigma == 0.0) {
         const double norm = matrix_norm_bound(model.A);
         const double step = norm > 0.0 ? 0.5 / norm : 1.0;
-        settings.tau = step;
-        settings.sigma = step;
-        std::fprintf(stderr, "auto_operator_norm=%.17g auto_tau=%.17g auto_sigma=%.17g\n", norm, step, step);
+        /* Keep tau*sigma fixed for the A coupling, but give constrained
+           sparse-Hessian QPs more dual progress.  Explicit Q*x curvature is
+           handled in the primal step, so an equal scalar pair is needlessly
+           restrictive on the benchmark family. */
+        settings.tau = diagonal_hessian ? step : 0.5 * step;
+        settings.sigma = diagonal_hessian ? step : 2.0 * step;
+        std::fprintf(stderr, "auto_operator_norm=%.17g auto_tau=%.17g auto_sigma=%.17g\n",
+            norm, settings.tau, settings.sigma);
     }
     if (settings.tau <= 0.0 || settings.sigma <= 0.0) {
         usage(argv[0]);

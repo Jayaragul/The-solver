@@ -10,9 +10,10 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Native C MPS reader for LP/MILP rows, bounds, integer markers, ranges, and
   objective coefficients.
 - Native QPS second pass for `QUADOBJ`, `QMATRIX`, and `QSECTION`, storing a
-  symmetric sparse Hessian in the public C model. The general-Hessian solver
-  is handled by a native CPU PDHG prototype for continuous convex QPs; it has
-  primal/step convergence checks but no QP dual optimality certificate yet.
+  symmetric sparse Hessian in the public C model. Continuous convex QPs use
+  native CPU PDHG, with a CUDA path for diagonal and general sparse Hessians;
+  first-order paths report primal/step convergence and do not claim a full QP
+  dual optimality certificate.
 - C dense partial-pivot LU API in `c/`, intended as the first basis/KKT solve
   primitive.
 - Native sparse-LU factorization with threshold pivoting, FTRAN/BTRAN, and
@@ -28,9 +29,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 - Persistent device-resident CSR storage for repeated iterations.
 - CUDA primal-dual hybrid-gradient (PDHG) prototype for bounded continuous LP:
   `min c'x` subject to `row_lower <= A*x <= row_upper` and variable bounds.
-- CUDA PDHG specialization for convex *diagonal* QPs: `min 0.5 x'Dx + c'x`,
-  where `D` is nonnegative diagonal, with the same linear and bound constraints.
-  General sparse-Hessian QPS input is handled by the native CPU path, not CUDA.
+- CUDA PDHG specialization for convex QPs: diagonal terms use an implicit
+  proximal update, while general sparse Hessians use a resident CUDA CSR
+  product under the same linear and bound constraints.
 - Native CPU QP dispatch has an exact closed-form path for unconstrained
   nonnegative diagonal Hessians; it returns an independently verified solution
   without entering the iterative PDHG loop.
