@@ -42,6 +42,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   dense KKT path (`Qx = -c`); larger models retain sparse PDHG.
 - Small non-convex Hessians are rejected as unsupported rather than being
   mislabeled optimal from a stationary-point residual.
+- The CUDA QP CLI applies the same small-Hessian PSD/symmetry admission check
+  before running its approximate GPU first-order path.
 - Native public `sk_solve` dispatch for continuous LP and sparse convex QP
   models, plus exact-simplex MILP branch-and-bound with bound propagation,
   pseudocost branching, incumbent-driven objective bound propagation, rounding

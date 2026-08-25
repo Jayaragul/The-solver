@@ -48,6 +48,40 @@ bool csc_to_csr(const sk_csc& csc, std::vector<int>& offsets,
     return true;
 }
 
+/* Small GPU QPs receive the same admission discipline as the native solver:
+ * a stationary first-order point is not an optimality statement for an
+ * indefinite Hessian. Larger Hessians remain approximate-only. */
+bool small_psd_hessian(const sk_csc& q)
+{
+    const int n = q.ncol;
+    if (n > 512) return true;
+    std::vector<double> h(static_cast<size_t>(n) * n, 0.0);
+    std::vector<double> l(static_cast<size_t>(n) * n, 0.0);
+    for (int col = 0; col < n; ++col) for (int p = q.p[col]; p < q.p[col + 1]; ++p) {
+        if (q.i[p] < 0 || q.i[p] >= n || !std::isfinite(q.x[p])) return false;
+        h[static_cast<size_t>(q.i[p]) * n + col] += q.x[p];
+    }
+    for (int i = 0; i < n; ++i) for (int j = i + 1; j < n; ++j) {
+        const double a = h[static_cast<size_t>(i) * n + j];
+        const double b = h[static_cast<size_t>(j) * n + i];
+        if (std::fabs(a - b) > 1e-10 * (1.0 + std::fmax(std::fabs(a), std::fabs(b)))) return false;
+        h[static_cast<size_t>(i) * n + j] = h[static_cast<size_t>(j) * n + i] = 0.5 * (a + b);
+    }
+    for (int i = 0; i < n; ++i) {
+        double d = h[static_cast<size_t>(i) * n + i];
+        for (int k = 0; k < i; ++k) d -= l[static_cast<size_t>(i) * n + k] * l[static_cast<size_t>(i) * n + k];
+        if (d < -1e-10 * (1.0 + std::fabs(h[static_cast<size_t>(i) * n + i]))) return false;
+        l[static_cast<size_t>(i) * n + i] = d > 1e-14 ? std::sqrt(d) : 0.0;
+        for (int j = i + 1; j < n; ++j) {
+            double v = h[static_cast<size_t>(j) * n + i];
+            for (int k = 0; k < i; ++k) v -= l[static_cast<size_t>(j) * n + k] * l[static_cast<size_t>(i) * n + k];
+            if (l[static_cast<size_t>(i) * n + i] > 1e-14) l[static_cast<size_t>(j) * n + i] = v / l[static_cast<size_t>(i) * n + i];
+            else if (std::fabs(v) > 1e-9) return false;
+        }
+    }
+    return true;
+}
+
 void usage(const char* program)
 {
     std::fprintf(stderr,
@@ -86,6 +120,11 @@ int main(int argc, char** argv)
 
     if (model.Q == nullptr) {
         std::fprintf(stderr, "CUDA QP path requires a QPS model with a Hessian\n");
+        sk_model_free(&model);
+        return 2;
+    }
+    if (!small_psd_hessian(*model.Q)) {
+        std::fprintf(stderr, "CUDA QP path rejects non-PSD or nonsymmetric small Hessians\n");
         sk_model_free(&model);
         return 2;
     }
