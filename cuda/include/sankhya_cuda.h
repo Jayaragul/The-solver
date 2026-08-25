@@ -102,8 +102,10 @@ SANKHYA_CUDA_API int sankhya_cuda_sparse_qp_pdhg(
     double* solution,
     SankhyaCudaLPResult* result);
 
-/* QP PDHG with caller-supplied positive diagonal primal/dual steps. Exactly
-   one of hessian or quadratic_diagonal may be non-null. */
+/* QP PDHG with caller-supplied finite, positive diagonal primal/dual steps.
+   Exactly one of hessian or quadratic_diagonal may be non-null. The scalar
+   tau and sigma fields are not used by this preconditioned entry point and
+   may be zero. */
 SANKHYA_CUDA_API int sankhya_cuda_qp_pdhg_preconditioned(
     const SankhyaCudaCSR* matrix,
     const SankhyaCudaCSR* hessian,

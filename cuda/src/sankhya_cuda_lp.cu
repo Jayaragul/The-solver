@@ -101,13 +101,20 @@ int solve_qp(
     if (check_cuda() != 0 || matrix == nullptr || c == nullptr || row_lower == nullptr ||
         row_upper == nullptr || col_lower == nullptr || col_upper == nullptr || solution == nullptr)
         return -1;
-    if (settings.max_iterations <= 0 || settings.check_every <= 0 || settings.tau <= 0.0 ||
-        settings.sigma <= 0.0 || settings.theta < 0.0 || settings.theta > 1.0 || settings.tolerance <= 0.0 || settings.time_limit < 0.0)
+    if (settings.max_iterations <= 0 || settings.check_every <= 0 ||
+        settings.theta < 0.0 || settings.theta > 1.0 || settings.tolerance <= 0.0 || settings.time_limit < 0.0)
         return -1;
     if ((primal_steps == nullptr) != (dual_steps == nullptr)) return -1;
+    if (primal_steps == nullptr && (settings.tau <= 0.0 || settings.sigma <= 0.0)) return -1;
     const int rows = matrix->rows;
     const int cols = matrix->cols;
     if (rows < 0 || cols < 0) return -1;
+    if (primal_steps != nullptr) {
+        for (int i = 0; i < cols; ++i)
+            if (!std::isfinite(primal_steps[i]) || primal_steps[i] <= 0.0) return -1;
+        for (int i = 0; i < rows; ++i)
+            if (!std::isfinite(dual_steps[i]) || dual_steps[i] <= 0.0) return -1;
+    }
     if (hessian != nullptr && (quadratic_diagonal != nullptr || hessian->rows != cols || hessian->cols != cols)) return -1;
     if (quadratic_diagonal != nullptr) {
         for (int column = 0; column < cols; ++column) {

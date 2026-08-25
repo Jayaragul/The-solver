@@ -10,24 +10,6 @@
 
 namespace {
 
-double matrix_norm_bound(const sk_csc& a)
-{
-    std::vector<double> row_sum(static_cast<size_t>(a.nrow), 0.0);
-    double col_max = 0.0;
-    double row_max = 0.0;
-    for (int column = 0; column < a.ncol; ++column) {
-        double column_sum = 0.0;
-        for (int p = a.p[column]; p < a.p[column + 1]; ++p) {
-            const double value = std::fabs(a.x[p]);
-            column_sum += value;
-            row_sum[static_cast<size_t>(a.i[p])] += value;
-        }
-        if (column_sum > col_max) col_max = column_sum;
-    }
-    for (double value : row_sum) if (value > row_max) row_max = value;
-    return std::sqrt(col_max * row_max);
-}
-
 bool csc_to_csr(const sk_csc& csc, std::vector<int>& offsets,
                 std::vector<int>& indices, std::vector<double>& values)
 {
@@ -85,7 +67,7 @@ bool small_psd_hessian(const sk_csc& q)
 void usage(const char* program)
 {
     std::fprintf(stderr,
-        "usage: %s model.qps [--iterations N] [--time-limit S] [--tau T] [--sigma S] "
+        "usage: %s model.qps [--iterations N] [--time-limit S] "
         "[--theta T] [--tolerance E]\n", program);
 }
 
@@ -95,13 +77,14 @@ int main(int argc, char** argv)
 {
     if (argc < 2) { usage(argv[0]); return 64; }
     const char* path = argv[1];
+    /* This driver always passes explicit diagonal steps.  tau and sigma are
+       intentionally zero: they are fallback scalars for the non-preconditioned
+       APIs and must not be reported as active QP parameters here. */
     SankhyaCudaLPSettings settings{100000, 100, 0.0, 0.0, 1.0, 1e-6, 0.0};
     for (int i = 2; i < argc; ++i) {
         if (i + 1 >= argc) { usage(argv[0]); return 64; }
         if      (!std::strcmp(argv[i], "--iterations")) settings.max_iterations = std::atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--time-limit")) settings.time_limit = std::atof(argv[++i]);
-        else if (!std::strcmp(argv[i], "--tau"))        settings.tau = std::atof(argv[++i]);
-        else if (!std::strcmp(argv[i], "--sigma"))      settings.sigma = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--theta"))      settings.theta = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--tolerance"))  settings.tolerance = std::atof(argv[++i]);
         else { usage(argv[0]); return 64; }
@@ -150,24 +133,6 @@ int main(int argc, char** argv)
         }
     }
 
-    if (settings.tau == 0.0 && settings.sigma == 0.0) {
-        const double norm = matrix_norm_bound(model.A);
-        const double step = norm > 0.0 ? 0.5 / norm : 1.0;
-        /* Keep tau*sigma fixed for the A coupling, but give constrained
-           sparse-Hessian QPs more dual progress.  Explicit Q*x curvature is
-           handled in the primal step, so an equal scalar pair is needlessly
-           restrictive on the benchmark family. */
-        settings.tau = diagonal_hessian ? step : 0.5 * step;
-        settings.sigma = diagonal_hessian ? step : 2.0 * step;
-        std::fprintf(stderr, "auto_operator_norm=%.17g auto_tau=%.17g auto_sigma=%.17g\n",
-            norm, settings.tau, settings.sigma);
-    }
-    if (settings.tau <= 0.0 || settings.sigma <= 0.0) {
-        usage(argv[0]);
-        sk_model_free(&model);
-        return 64;
-    }
-
     std::vector<int> offsets, indices;
     std::vector<double> values;
     csc_to_csr(model.A, offsets, indices, values);
@@ -186,6 +151,7 @@ int main(int argc, char** argv)
     }
     for (int row = 0; row < model.nrow; ++row)
         dual_steps[static_cast<size_t>(row)] = 0.9 / (1.0 + dual_steps[static_cast<size_t>(row)]);
+    std::fprintf(stderr, "qp_step_policy=diagonal_row_column_mass step_damping=0.9\n");
     std::vector<int> q_offsets, q_indices;
     std::vector<double> q_values;
     if (!diagonal_hessian) csc_to_csr(*model.Q, q_offsets, q_indices, q_values);
