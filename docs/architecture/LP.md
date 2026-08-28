@@ -1,0 +1,473 @@
+# LP Engine Architecture
+
+**Status:** PHASE 2 architecture. Per prompt.md §2.7, the LP engine is designed independently of the MILP engine that will call it repeatedly, and no single algorithm is assumed universally optimal — the choice is adaptive, based on model characteristics, and stated as such rather than picked by default preference.
+
+---
+
+## 1. Algorithms Evaluated
+
+| Algorithm | Status for v1 | Rationale |
+|---|---|---|
+| **Dual simplex** | **v1 default for warm starts** (implemented; see §2.1 — cold starts use primal, on measured evidence) | Warm-start-friendly from a parent B&B node's basis (the dominant workload shape in this project — thousands of related re-solves); matches the documented default reasoning in both HiGHS and CPLEX (SOTA.md §1.1, §1.2) |
+| **Primal simplex** | v1 fallback, and v1 cold-start default (implemented; §2.1) | Used when dual simplex cannot establish a feasible starting basis, or as the recovery path in `NUMERICS.md` §5's fallback chain |
+| **Barrier / interior-point** | **Deferred** | A from-scratch IPM (predictor-corrector, normal-equations or KKT solve) is a large independent engineering effort; SOTA.md §1.3b's literature review found GPU-accelerated IPM factorization speedups to be modest in practice (fill-in erodes sparsity advantage) — not obviously worth building before the simplex core is validated. Revisit once v1 core is benchmarked (Level 6+) |
+| **First-order primal-dual (PDLP-style)** | **Deferred (SOTA.md KS-7)** | Not warm-start-friendly for repeated B&B relaxations (iterates are not basic solutions); would introduce a second numerical code path requiring its own validation before the first is even benchmarked |
+
+**Why dual simplex over primal as the default, specifically:** in this project's dominant workload (a B&B node relaxation is the parent's relaxation plus one tightened bound), the parent's optimal basis is typically dual-feasible for the child (only primal feasibility is disturbed by the bound change) — exactly the condition dual simplex exploits for warm starts. This is the same reasoning documented for CPLEX's default (SOTA.md §1.2) and is treated here as LITERATURE EVIDENCE supporting the choice, not a novel claim.
+
+## 2. Adaptive Selection Strategy
+
+```cpp
+enum class LPMethod { DUAL_SIMPLEX, PRIMAL_SIMPLEX };
+
+LPMethod select_method(const LPWarmStartContext& ctx) {
+    if (ctx.has_parent_basis && ctx.parent_basis_dual_feasible)
+        return LPMethod::DUAL_SIMPLEX;
+    if (!ctx.has_parent_basis)
+        return LPMethod::PRIMAL_SIMPLEX; // cold start: build initial feasible basis directly
+    return LPMethod::DUAL_SIMPLEX; // default; NUMERICS.md §5 governs runtime fallback
+}
+```
+
+### 2.1 Implementation status (Phase 3) — `src/lp/Simplex.cpp`, `src/lp/LpSolver.cpp`
+
+Both algorithms are implemented and both are reachable: `LpAlgorithm::{PRIMAL, DUAL, AUTO}` on `Simplex`, surfaced as `LpSolverOptions::algorithm` on the `solve_lp` pipeline.
+
+**`AUTO` resolves to `PRIMAL` on a cold start, and gains the parent-basis branch when one is supplied.** `Simplex::set_warm_start_basis`/`export_basis` (`Simplex.hpp`) are now implemented: a caller exports a solved instance's basis and seats it into a fresh instance over a bound-tightened child, and `solve()` runs the dual-simplex repair from there — ahead of both cold paths — before falling back if verification fails. `MilpSolverOptions::warm_start_node_relaxations` wires this into the B&B node loop (`MILP.md` §1.4). See §8 below for what this measured.
+
+**EXPERIMENTAL RESULT — cold-start primal vs dual** (`benchmarks/bench_lp_algorithm.cpp`, Netlib feasible set to 2600 rows, full `solve_lp` pipeline including presolve, Devex pricing, Ruiz scaling, 79 instances where the dual path was actually entered and both algorithms reached `OPTIMAL`):
+
+| | total iterations | total wall-clock |
+|---|---|---|
+| Primal two-phase | 164,580 | 32.99 s |
+| Dual simplex | 446,641 (**2.71×**) | 106.28 s (**3.22×**) |
+
+The aggregate is not the whole finding, and the spread is the part that matters:
+
+| instance | primal | dual | |
+|---|---|---|---|
+| `d6cube` | 31,033 it / 5.18 s | 1,070 it / 0.19 s | dual **29× fewer iterations** |
+| `degen3` | 6,845 it / 1.10 s | 12,359 it / 2.02 s | dual 1.8× worse |
+| `pilotnov` | 3,110 it / 0.29 s | 86,420 it / 6.78 s | dual runs, fails verification, primal fallback answers |
+| `pilot87` | 14,071 it / 13.1 s | 110,278 it / 74.8 s | dual 5.7× slower **and** disagrees on the objective beyond 1e-6 |
+
+So cold-start dual is not uniformly worse — it is *unpredictable*, and on a cold start that unpredictability buys nothing, because there is no warm basis whose retained dual feasibility is the entire reason to prefer it. This measurement supports the cold-start branch of the table above; it says **nothing** about the warm-start branch, which cannot be measured until warm starts exist.
+
+Two classification details in that benchmark, both of which change the numbers if got wrong:
+
+- **16 instances admit no dual-feasible start at all** and were excluded. `setup_dual_feasible_start` requires every cost to point toward a *finite* bound; where it does not, `DUAL` runs the primal path and comparing it against itself measures nothing.
+- **Whether a model admits that start is a property of the model the simplex actually receives, so presolve changes it.** `pilot87` has no dual-feasible start unreduced but does after presolve fixes columns and tightens bounds. An earlier version of this benchmark drove `Simplex` directly, classified `pilot87` as "no-start", and reported dual as a 0.78× *win* overall — the opposite conclusion, from measuring a configuration that does not ship.
+
+### 2.2 Dual simplex correctness work (Phase 3)
+
+Three defects were found and fixed by wiring the dual path in and measuring it. All three shared a shape worth naming: each produced a *plausible* answer rather than an obvious crash.
+
+1. **Single-pass dual ratio test → divergence and false infeasibility.** The test took the minimum ratio with only a 1e-12 tie-break toward larger pivots, so any pivot above `kPivotTol` (1e-9) was acceptable. Since the primal step is $t = \delta / \alpha_{\text{enter}}$, one such pivot converts a small bound violation into an enormous one, which becomes the next iteration's leaving row. **MEASURED on `grow15`:** worst basic infeasibility reached 1.4e+12 over 5,219 iterations, dual feasibility was lost entirely (max dual infeasibility 7.0 against a 1e-9 tolerance), and the solver then reported `INFEASIBLE` **on a feasible model** — one of 10 such false infeasibility claims across the 89-instance set. Fixed by the Harris two-pass form (Koberstein 2005 §3.3, the dual counterpart of §3's primal test): pass 1 relaxes each ratio by a dual-feasibility tolerance, pass 2 takes the largest pivot in that set. False infeasibility claims went 10 → 0. Pinned by `dual_simplex_ratio_test_rejects_tiny_pivots`.
+2. **Termination measured in scaled units, verification in original units.** The dual stopped when every basic variable was within tolerance of its bounds *in Ruiz-scaled space*, while `finalize_result` verifies in original units — a 1e-9 scaled violation is $C_j$ times that once unscaled. Fixed by applying `unscale_factor` in the leaving-row test, so the termination criterion and the verification gate measure the same thing.
+3. **Termination decided on drifted values.** `value_` is carried forward by incremental pivot updates between refactorizations. Both terminal conclusions — `OPTIMAL` *and* `INFEASIBLE` — were being decided on those drifted numbers. **MEASURED on `grow15`:** the drifted values passed the feasibility test while values re-derived from the same basis were 1.2e-05 infeasible in original units. Both exits now refactorize, re-derive, and re-scan before concluding; an infeasibility claim decided on drift would be a wrong answer, not merely a slow one.
+
+**Open item, not fixed:** under explicit `DUAL`, `pilot87` reports an objective differing from the primal path's by more than 1e-6 relative while passing its own verification gate. The shipping path is unaffected (`AUTO` is primal), so this is recorded rather than worked around.
+
+This is intentionally a small, explicit decision table rather than a learned or heuristic-scored selector (cf. SOTA.md §1.3's rejection of learned branching/selection for v1 on auditability grounds) — every selection is traceable to a stated structural reason. **RESEARCH HYPOTHESIS, not yet validated:** that this simple rule captures most of the achievable benefit versus a more elaborate model-characteristic classifier; revisit if benchmarking (Level 6) shows a large fraction of solves taking the "wrong" branch.
+
+## 3. Degeneracy Handling (mandatory, not optional)
+
+Per SOTA.md §1.4.2 and the project's own ASSUMPTION that refinery scheduling/blending models are frequently degenerate (interchangeable units/periods), the v1 simplex core includes anti-degeneracy machinery from the start rather than as a later optimization:
+
+- **Ratio test:** Harris two-pass ratio test (SOTA.md §1.4.2, ESTABLISHED METHOD) — first pass computes a relaxed step-length bound tolerating a small, bounded constraint violation; second pass selects, among rows within that bound, the largest-magnitude pivot. This directly counters the numerically fragile "exact tightest ratio" tie-breaking that a naive ratio test would use.
+- **Pricing:** Devex pricing (SOTA.md §1.4.2, ESTABLISHED METHOD) as the v1 default — a cheaper approximation to exact steepest-edge that still substantially reduces degenerate-tie iteration counts relative to naive Dantzig pricing, at lower per-iteration bookkeeping cost than full steepest-edge. **IMPLEMENTATION DECISION:** start with Devex; steepest-edge (Goldfarb & Reid 1977 / Forrest & Goldfarb 1992) is a candidate upgrade if benchmarking shows Devex's approximation quality is insufficient on refinery-structured degenerate instances — not built preemptively.
+- **Anti-cycling fallback:** Bland's rule (smallest-index tie-breaking, SOTA.md §1.4.2) as the guaranteed-termination fallback when the Harris/Devex combination still stalls beyond a configured iteration count — Bland's rule is slow but is the only one of the surveyed methods with a finite-termination proof, making it the correct last resort rather than the default (which would sacrifice speed everywhere to guard against a failure mode Harris+Devex already handles in the common case).
+
+## 3.1 Initial basis (crash) — implemented
+
+**ESTABLISHED METHOD:** Bixby, "Implementing the Simplex Method: The Initial Basis," *ORSA Journal on Computing* 4(4), 1992.
+
+The naive start seats an artificial in every row, so phase 1 must drive out one artificial per row — at least $m$ pivots before phase 2 can begin, and in practice far more. Netlib's own index records Bixby measuring 465,810 phase-1 iterations on `dfl001` ($m = 6071$) from exactly this cause.
+
+An inequality row's slack already has room to absorb its own residual (`L` row: $[0,+\infty)$; `G` row: $(-\infty,0]$). Wherever the required residual falls inside the slack's bounds, that row starts **feasible** with the slack basic and needs no artificial. Only equalities and violated inequalities get one. The resulting basis is still one unit column per row, so $B$ stays diagonal and the initial factorization stays trivial.
+
+Two conditions are enforced, both discovered by test failures rather than anticipated:
+
+- **The slack must have room to move, not merely cover the residual.** An equality row's slack is fixed at $[0,0]$; crashing that into the basis seats a variable that can never change, so every ratio test through it forces a zero step and the basis is degenerate from iteration one. This made `grow7` fail verification (`NUMERICAL_FAILURE`) until the freedom test was added.
+- **An artificial displaced by a crashed slack is frozen at $[0,0]$ for phase 1.** Under the all-artificial start every artificial began *basic*; under a crash basis many begin *nonbasic* and therefore remain eligible to **enter**, reintroducing infeasibility into a row that started feasible. Freezing is sound because the ratio test keeps the basic slack within its own bounds, so the row stays satisfied throughout phase 1.
+
+## 4. Basis Management and Factorization
+
+- **Representation:** LU factorization of the basis matrix, maintained via sparsity-preserving updates (Bartels & Golub 1969 / Forrest & Tomlin 1972 style — SOTA.md §1.1, ESTABLISHED METHOD) rather than full re-factorization at every pivot.
+- **Periodic re-factorization:** triggered on a fixed iteration count *and* on the condition-number-monitoring signal from `NUMERICS.md` §5 — whichever comes first. This bounds both the fill-in growth from repeated updates and the numerical drift that motivates `NUMERICS.md`'s continuous condition monitoring.
+- **Pivoting for the factorization itself:** Markowitz threshold pivoting (SOTA.md §1.4.1, ESTABLISHED METHOD) balancing fill-in against numerical stability.
+
+### 4.1 Implementation status (Phase 3) — `src/lp/BasisFactorization.{hpp,cpp}`
+
+Implemented and integrated into `Simplex`. Three deviations from the specification above are deliberate and are recorded here rather than left as silent gaps:
+
+| Specified | Implemented | Why |
+|---|---|---|
+| Bartels–Golub / Forrest–Tomlin update | **Product form of the inverse** (Dantzig & Orchard-Hays 1954), eta file discarded at each refactorization | PFI is markedly easier to make numerically correct, and its known weakness — eta-file growth — is already bounded by the periodic-refactorization policy this section mandates. Forrest–Tomlin is the correct upgrade **if** measurement shows eta application, not factorization, dominates. That is an experiment to run, not an assumption to act on. |
+| Markowitz threshold pivoting | **Gilbert–Peierls left-looking LU** (SIAM J. Sci. Stat. Comput. 9(5), 1988) with threshold partial pivoting (factor 0.01) and a row-count sparsity tie-break; columns pre-ordered by ascending nonzero count | Gilbert–Peierls costs time proportional to the arithmetic actually performed. The ascending-nnz column order makes the many unit columns (slacks, artificials) pivot immediately, which triangularizes most of a simplex basis before any general elimination — a cheap stand-in for the explicit triangularization phase production codes run first. |
+| Refactorize on iteration count | Refactorize on **accumulated eta count** | PFI solve cost and numerical drift both track the eta file. Bound-flip iterations advance the iteration counter but push no eta, so an iteration-based trigger refactorizes at the wrong times. |
+
+**Basis repair** (`NUMERICS.md` §5) is implemented here rather than deferred: a dependent basis column is reported by the factorization (not thrown), the unmatched row's artificial is substituted, and the basis is refactorized once. A second failure is reported as `NUMERICAL_FAILURE` rather than retried.
+
+**EXPERIMENTAL RESULT — what this replaced and what it bought.** The prior implementation stored $B^{-1}$ explicitly as a dense $m \times m$ array: $O(m^2)$ memory and per-pivot work, $O(m^3)$ refactorization. Measured effect of the replacement, same machine, same instances, Netlib feasible set at row cap 1300, **77/77 passing in both cases** (so this is a pure speed comparison at equal correctness):
+
+| Instance | rows | dense inverse | sparse LU | speedup |
+|---|---|---|---|---|
+| `pilot.ja` | 940 | 12.344 s | 0.869 s | 14.2× |
+| `25fv47` | 821 | 4.742 s | 0.380 s | 12.5× |
+| `d6cube` | 415 | 46.936 s | 4.433 s | 10.6× |
+| `pilot.we` | 722 | 4.222 s | 0.501 s | 8.4× |
+| `maros` | 846 | 0.679 s | 0.118 s | 5.8× |
+| `pilotnov` | 975 | 1.884 s | 0.380 s | 5.0× |
+
+The `d6cube` row also closes an open regression previously recorded in `NUMERICS.md` §2 (Ruiz scaling had pushed it 5.7 s → 46.9 s); the sparse factorization removes it, which indicates the regression was fill/inverse-update cost rather than anything to do with scaling.
+
+The asymptotic point matters more than any single row above: at $m = 6072$ (`dfl001`) the dense inverse alone is 295 MB with ~$2.2\times10^{11}$ flops per refactorization, and at $m = 105127$ (`ken-18`) it is 88 TB. Those instances were not slow — they were unreachable in principle.
+
+**Reachability, measured on the five instances that had been excluded by the 1300-row cap:**
+
+| Instance | rows | cols | dense inverse | sparse LU |
+|---|---|---|---|---|
+| `bnl2` | 2324 | 3489 | not solved in 900 s | **1.37 s**, verified optimal |
+| `greenbea` | 2392 | 5405 | not solved in 900 s | **1.97 s**, verified optimal |
+| `d2q06c` | 2171 | 5167 | not solved in 900 s | **4.66 s**, verified optimal |
+| `pilot87` | 2030 | 4883 | not solved in 900 s | **14.76 s**, verified optimal |
+| `dfl001` | 6071 | 12230 | not solved in 900 s | `ITERATION_LIMIT` at 765 s (~549k iterations, ~1.4 ms/iter) |
+
+Baseline: a single 900 s run over all five completed **0 of 5** (output was still buffered when the timeout killed it — nothing had finished). After: **4 of 5** verified optimal, three of them in under 5 s.
+
+**`dfl001` is an open failure and is recorded as one.** It is not a surprise: Netlib's own index file documents it as pathological — Bixby reports 465,810 phase-I iterations under reduced-cost pricing, 94,337 with CPLEX defaults, and 25,803 only after switching to steepest-edge pricing *and* a different scaling, calling it "a nasty problem." Our run exhausted its iteration cap rather than stalling numerically, and per-iteration throughput was healthy, so the deficit is iteration *count*, not iteration cost. The two documented levers — presolve (`SYSTEM.md` §2.3, designed but not implemented) and pricing strength beyond Devex's steepest-edge approximation — are exactly the ones Bixby's numbers implicate. Neither is yet built; until one is, `dfl001` stays a known failure rather than a tuned-around one.
+
+Two further observations, recorded rather than resolved: `d2q06c` (1.99e-07) and `pilot87` (3.26e-07) pass but sit an order of magnitude closer to the 1e-6 acceptance threshold than the rest of the set, which is consistent with `pilot87`'s documented bad scaling (Lustig, quoted in the Netlib index) and warrants attention when accuracy targets are tightened toward `NUMERICS.md` §3's 1e-8 goal.
+
+## 5. Interface
+
+```cpp
+struct LPWarmStartContext {
+    std::optional<Basis> parent_basis;
+    bool has_parent_basis;
+    bool parent_basis_dual_feasible;
+};
+
+struct LPResult {
+    SolveStatus status;          // NUMERICS.md §6
+    std::vector<double> x, y_dual, s_reduced_cost;
+    Basis basis;                 // handed to children as their warm start
+    int iterations;
+    Residuals residuals;         // NUMERICS.md §3, in original-model units
+};
+
+class LPEngine {
+public:
+    LPResult solve(const SparseMatrixCSR& A, const SparseMatrixCSR& A_T,
+                    const Bounds& bounds, const Objective& c,
+                    const LPWarmStartContext& warm_start);
+private:
+    // owns: current basis, LU factors, Devex reference weights,
+    // scratch vectors from the node-scratch arena (MEMORY.md §3.1 tier 2)
+};
+```
+
+`LPEngine` does not own the matrix — it receives a view into the device/host-resident `SparseMatrixCSR`/`CSC` pair owned by `SolveContext` (`SYSTEM.md` §3), since the same matrix (or a node-local restriction of it) is shared across every node in the B&B tree. This avoids the zero-allocation-during-solve violation that would result from copying the matrix per node.
+
+## 6. What v1 Explicitly Does Not Include
+
+QP support (prompt.md's stated long-term target includes QP) is **not** part of the v1 LP engine. A QP extension requires either an active-set method built on this same simplex machinery or a barrier method handling the Hessian term — both are deferred alongside barrier/IPM (§1) until the LP core is validated. This is stated explicitly rather than left as a silent gap, per prompt.md's instruction to distinguish what is built from what is claimed.
+
+---
+
+## 7. `LpMethod::HYBRID` — structure-aware lead, verified fallback
+
+**MEASURED.** Two solvers whose failures are disjoint, a cheap feature that
+predicts which will win, and a fallback that makes a wrong prediction cost one
+budget instead of a wrong answer.
+
+```
+HYBRID:
+    rows(presolved) >= 3000  ->  first-order leads, simplex is the fallback
+    otherwise                ->  simplex leads, first-order is the fallback
+
+    the LEAD runs under a wall-clock budget
+    its answer is checked against the ORIGINAL-SPACE gate before commitment
+    if it does not converge, or converges but fails that gate, the other runs
+```
+
+### The predictor is row count, and it was measured
+
+Sorted by rows across the 21 Kennington/QAP models, the first-order path wins
+every instance from 4,350 rows upward, and the simplex wins most below 3,000.
+
+**Nonzero count is the wrong feature.** `osa-07` has 143,694 nonzeros and the
+simplex wins 2.2×; `ken-11` has 49,058 and the first-order path wins 18×. Rows
+is right because it is the quantity the two costs actually scale with: a simplex
+iteration solves against an $m \times m$ basis and its iteration count grows with
+$m$, whereas a PDHG iteration costs the same 57–111 µs almost regardless of size.
+
+Threshold chosen against an oracle that picks the better method per instance:
+
+| lead policy | total over the 21 models |
+|---|---|
+| oracle (perfect choice) | 56.0 s |
+| always simplex first | 419.9 s |
+| **rows ≥ 3000 → first-order leads** | **67.8 s** |
+| rows ≥ 4000 | 117.9 s |
+
+4,000 is worse because `qap12` (3,192 rows) is solved *only* by the first-order
+path and would fall on the wrong side of it.
+
+### Measured effect
+
+| set | metric | simplex-first | structure-aware |
+|---|---|---|---|
+| Netlib (93) | solved | 93 / 93 | **93 / 93** |
+| | total | 115.90 s | **72.59 s** |
+| | p95 | 6.71 s | **4.03 s** |
+| | worst objective error | 5.779e-07 | **5.779e-07** |
+| Kennington + QAP (21) | solved | — | **21 / 21** |
+| | total, simplex alone | 388.0 s | — |
+| | total, HYBRID | — | **43.9 s** |
+
+Per instance on Netlib: `dfl001` 34.77 → **4.01 s**, `maros-r7` 5.30 → **1.04 s**,
+`fit2p` 8.05 → **2.14 s**. `stocfor3` regresses, 15.03 → **24.74 s** — it clears
+the row threshold but is one of the few large models the simplex handles well.
+That is the cost of a one-feature predictor and it is bounded by the budget.
+
+`KNOWN LIMITATION`: the cross-method benchmark reports `hybrid / oracle = 0.78×`,
+which is **not** a claim that the hybrid beats a perfect chooser. The oracle is
+built from standalone solves at `eps = 1e-8` while HYBRID runs its first-order
+path at `1e-7`, so it is allowed a cheaper stopping test. Both clear the same
+gate. Read that ratio as an upper bound on the quality of the method *choice*.
+
+### Convergence is not verification — a defect this design exposed
+
+The first version of the structure-aware hybrid fell back only when the leading
+method **failed to converge**. That is the wrong condition, and an A/B with the
+adaptive step size disabled produced the counterexample:
+
+```
+dfl001  NUM_FAILURE  objerr 4.16e-07  4.945s  [first-order]
+```
+
+The first-order path led, converged on its own KKT test, and was then rejected
+by the original-space gate — with the simplex never tried, on a model the
+simplex path had previously handled. PDLP's KKT test is a statement about the
+**scaled, presolved** problem; the gate is a statement about the problem the
+**caller** posed. They are different questions, and a fallback keyed only on the
+first is not a fallback.
+
+The gate is now factored out (`candidate_primal_residual`) and applied to the
+leading method's answer *while the other method is still available*.
+
+### Why sequential, and not concurrent
+
+An earlier design raced the two solvers on separate threads, reasoning that the
+simplex is CPU-bound and PDLP GPU-bound so they would not contend.
+
+**They contend badly.** PDLP's host thread drives scaling, a transpose build, a
+power iteration and a spinning stream synchronize, while the simplex's pricing
+loops already use every core. `woodw` went 0.174 s → 5.6 s (PDLP then won with an
+answer that failed verification); `greenbeb` 1.3 s → 62 s; validation 92/93 →
+91/93. An earlier version was worse still — it let PDLP cancel the simplex on
+*finishing* rather than *succeeding*, so a non-converged PDLP killed solves about
+to succeed: 86/93.
+
+Two rules generalize past this solver:
+
+- **A loser must never be able to stop a winner.** Cancellation may only be
+  triggered by a result the canceller could actually return.
+- **Parallelism between algorithms is only free when they use disjoint
+  resources.** "CPU-bound" and "GPU-bound" describe where the *work* happens, not
+  where the *thread waits*.
+
+### Per-domain CPU parallelism policy
+
+The deterministic inner loops are exposed through `LpSolverOptions::parallel_mode`:
+
+- `AUTO` (the default) uses OpenMP only for sufficiently large sparse passes,
+  using the measured `kParallelNnzThreshold` gate.
+- `SERIAL` disables CPU inner-loop teams for this solve. A caller that is
+  solving independent domains or subproblems concurrently should use this
+  mode to avoid nested OpenMP oversubscription.
+- `PARALLEL` explicitly enables those deterministic loops, including for a
+  small domain when the caller has measured that the extra team overhead is
+  acceptable.
+
+Only loops with one writer per output element and a fixed summation order use
+this policy. It cannot change pivot choices, objective values, feasibility
+checks, or reported statuses. Parallelism between independent solver calls is
+not enabled implicitly because the surrounding MILP/domain scheduler owns the
+resource budget and must decide how many domains to run at once.
+
+---
+
+## 8. Warm-started dual simplex for MILP nodes — implemented, measured, **not** adopted by default
+
+**IMPLEMENTED.** `Simplex::Basis`/`set_warm_start_basis`/`export_basis` (this
+file's long-stated missing piece, and `MILP.md`'s stated prerequisite) exist
+and are unit-tested (`tests/lp/test_simplex.cpp`'s `warm_start_*` cases,
+`tests/milp/test_milp.cpp`'s `milp_warm_start_*` cases): a non-root B&B node
+constructs a `Simplex` directly over the shared node workspace (bypassing
+`solve_lp`'s presolve — see the reasoning below), seats its parent's exported
+basis, and runs the dual-simplex repair. The result passes the exact same
+original-space verification gate (`NUMERICS.md` §6) as every other path;
+`MILP.md` §4.1's invariant that every node bound comes from a certified
+simplex solve is unchanged. Gated behind
+`MilpSolverOptions::warm_start_node_relaxations`, **default `false`**.
+
+**Why presolve is bypassed at node level, not made warm-start-aware.**
+Presolve's reductions are bound-dependent — a child's tighter bound can fix a
+column or drop a row the parent's presolve did not — so a warm basis is only
+valid if parent and child solve over the *same* augmented column space.
+Proving a specific presolve reduction is basis-preserving under one bound
+tightening is a real but separate validation project; skipping presolve for
+non-root nodes sidesteps the question by construction. The cost of that
+choice is measured directly below.
+
+**MEASURED, `benchmarks/bench_miplib.cpp` against `data/miplib2017_small`, 60 s
+per instance, single process, nothing else running**
+(`reports/runs/2026-08-25/miplib-warmstart-{off,on}.txt`):
+
+| instance | nodes (off) | nodes (on) | certified (off) | certified (on) |
+|---|---|---|---|---|
+| `gen-ip002` | 298,448 | 792,647 (2.7×) | — (`TIME_LIMIT`) | — (`TIME_LIMIT`) |
+| `gen-ip054` | 251,141 | 1,033,448 (4.1×) | — | — |
+| `markshare2` | 669,274 | 2,390,406 (3.6×) | — | — |
+| `neos859080` | 331 | 191,082 (577×) | **yes** — `INFEASIBLE`, 0.795 s | **no** — `TIME_LIMIT` |
+| `pk1` | 126,318 | 468,345 (3.7×) | — | — |
+
+Certified results across the set: **1/5 → 0/5.** Node throughput improved
+2.7–577× everywhere it was measured, and the outcome got *worse* on the one
+metric the roadmap's KPI gate actually cares about. `neos859080` is the sharp
+case: cold, it proves infeasibility in 331 nodes because presolve-level
+reductions (not deep B&B search) do most of the work; warm-started, each node
+is faster but has to rediscover that structure by search alone, and 191,082
+nodes in 60 s is not enough to finish what 331 presolved nodes did.
+
+**KNOWN LIMITATION / RESEARCH HYPOTHESIS, not yet tested:** the working
+hypothesis is that node-level presolve — not the per-node LP solve — is
+carrying most of the pruning power on this instance set, and warm-starting
+without it trades a cost that mattered less (LP re-solve time) for one that
+matters more (lost structural reductions). A presolve-aware warm start
+(verifying which reductions survive a specific bound tightening, or a
+cheaper node-local propagation pass that does not require bypassing
+`solve_lp` entirely) is the natural next increment if this path is revisited
+— not a larger MILP heuristic/cut effort, which this measurement does not
+implicate.
+
+**Per the roadmap's own rule** ("no optimization is accepted unless it
+improves a declared benchmark KPI without reducing correctness or
+solvability"): this does not clear that bar, so the default stays `false`.
+The code, tests, and this measurement are kept rather than reverted, because
+a negative result recorded with its cause is worth more to the next attempt
+than no result at all.
+
+---
+
+## 9. Hyper-sparse BTRAN — implemented, measured, a real win at scale
+
+**IMPLEMENTED.** `BasisFactorization::btran` (`src/lp/BasisFactorization.cpp`)
+now uses Gilbert & Peierls' 1988 DFS-reachability technique for its two
+triangular solve phases (U^T then L^T), instead of the unconditional O(m)
+sweep every prior version used regardless of how sparse the right-hand side
+actually was. This is the roadmap's own long-standing "Hyper-sparse
+FTRAN/BTRAN with active-pattern detection" item — scoped to **BTRAN only**
+for v1 (see the design note below); FTRAN's `ftran_column` remains a named,
+deferred v2 candidate.
+
+The factorization already contained the exact DFS machinery this needed
+(`sparse_lsolve`, built for the *factorization's own* sparse column solves)
+— it was simply never wired into a post-factorization solve. Reusing it
+directly turned out not to be possible: `sparse_lsolve` operates in
+matrix-row space via `pinv_` indirection, which only holds during
+construction; post-factorization, `Li_`/`Ui_` are already remapped into
+pivot-step space. `btran` instead calls a new, simpler `reach()` — the same
+DFS-with-explicit-stack shape, but working directly over row-major (CSR)
+transposes of L's and U's off-diagonal structure (`Lt_p_/Lt_i_`,
+`Ut_p_/Ut_i_`), built once per `factorize()` call since neither L nor U
+changes again before the next refactorization. The eta phase is
+deliberately **not** sparsified: eta count is bounded by the
+refactorization cadence, not by `m_`, so it was never the O(m) cost this
+targets.
+
+### A real bug, caught by the existing differential test suite before it shipped
+
+The first version had a mark-value collision: `sparse_lsolve` already uses
+mark values `0..m-1` internally during `factorize()` (one per pivot step),
+and the new `reach()`'s own mark counter started at 0 too, incrementing
+per call. Its very first invocation could therefore reuse a mark value
+`sparse_lsolve` had already written into the shared `mark_` array during
+factorization — making a genuine DFS seed look "already visited" and
+silently dropping it from the discovered pattern. `basis_factorization_
+requires_pivoting` (`tests/lp/test_basis_factorization.cpp`, a 3x3 matrix
+whose natural first pivot is zero) failed immediately: `check_btran`
+verifies `B^T y = c` directly against the dense reference matrix, and the
+corrupted pattern produced a wrong `y`. Fixed by starting the DFS mark
+counter at `m_` (`solve_mark_ = m_;`, reset in `factorize()`) rather than
+0, guaranteeing no future `reach()` call can ever collide with a mark
+`sparse_lsolve` already used. Three new tests pin this specifically
+(`basis_factorization_btran_matches_dense_on_unit_vector_rhs`,
+`..._after_updates`, `..._when_pivot_order_permutes_rows` — the last being
+this exact regression case, kept small and separate from the random trials
+so a future break here fails immediately rather than inside a tolerance).
+
+### MEASURED — large LP: a clean win; small MILP nodes: two more lessons
+
+**Large LP (`stocfor3`, 16,675 rows), 3 clean single-process trials each,
+median wall-clock:** 15.379 s (dense) → 12.852 s (hyper-sparse), a real
+**16.4% improvement**. Per-stage: `pivot row: BTRAN` (`compute_binv_row`'s
+RHS is always a unit vector — pattern size 1, the theoretically best case)
+improved consistently, **~24%** across every trial. `duals (BTRAN)`
+(`compute_duals`'s RHS is `c_B`) showed a small, noisy, roughly neutral
+effect.
+
+Getting a *reliable* read here took two false starts, both instructive:
+
+1. **A single before/after pair showed `duals (BTRAN)` 67% SLOWER**, not
+   faster. Investigation (not another retraction — the effect was real,
+   just not what it looked like) found the actual cause: once phase 2 has
+   many nonzero-cost structural variables basic, `c_B` is often not sparse
+   at all, and the DFS then pays its own per-node bookkeeping on top of
+   visiting nearly every node anyway — strictly more work than the dense
+   sweep it replaced. Fixed with a density fallback
+   (`kHyperSparseDensityThreshold = 0.3`, an engineering default from this
+   one measurement, not a tuned optimum): when the seed pattern already
+   exceeds 30% of `m_`, `btran` skips `reach()` entirely and processes
+   every column in the same order the original dense sweep always used,
+   by writing the identity (or reversed-identity, for the L^T phase)
+   permutation into `pattern_` — reusing the same restricted-sweep loop
+   rather than duplicating it.
+2. **Even after that fix, one profiling run looked like an *overall*
+   regression** (17.874 s, with stages the BTRAN change cannot touch —
+   pricing, `A^T` assembly — also reading high). Three repeat trials of
+   the *identical* binary showed 12.3–13.2 s: this was measurement noise
+   (this repo's own documented risk — three previously retracted
+   conclusions came from exactly this), not a code effect. The clean
+   multi-trial comparison above is the one to trust.
+
+**Small MILP node relaxations** (`bench_miplib`, the 5-instance MIPLIB set,
+m in the 7–90 row range, warm start off): node throughput in the 60 s
+budget dropped 4–7% at first. Root cause, confirmed by rereading the code
+rather than re-guessing: `btran`'s new DFS path allocated fresh
+`std::vector` locals (`seed`, `ut_pattern`) on *every call* — and `btran`
+runs every simplex iteration, across hundreds of thousands of B&B nodes for
+instances like `markshare2`. This is exactly what `BasisFactorization`'s
+own existing scratch-member convention (`pattern_`, `dfs_node_`, etc., all
+sized once in `factorize()`, per `prompt.md` §3.1's no-allocation-during-
+solve rule) exists to prevent — the new code just didn't follow it. Fixed
+by giving both arrays dedicated `mutable` scratch members
+(`seed_work_`/`ut_pattern_work_`), reserved once in `factorize()` and
+repopulated via `clear()`/`assign()` rather than reallocated. This
+recovered most, not quite all, of the throughput gap — but the residual
+(2–5%) is the same order of magnitude as this instance set's own natural
+run-to-run variance under a time-limited budget (`gen-ip002`'s node count
+alone ranged 287,498–298,448 across three *unrelated* runs of the
+unmodified dense code earlier the same session), so it is recorded as
+**within noise**, not as a confirmed further regression.
+
+**Net assessment:** a genuine, reproducible win on the scale this project's
+target workload (MRPL, large refinery models) actually cares about, with
+two real defects found and fixed along the way (the mark-collision
+correctness bug, and the allocation-driven small-instance slowdown) rather
+than papered over. No KPI regression on the existing benchmark suite —
+128/128 unit tests pass (3 new, added for this change), and every
+Netlib/MIPLIB verdict is unchanged from before this change.

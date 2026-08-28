@@ -1,0 +1,38 @@
+GPU: NVIDIA GeForce RTX 3050 A Laptop GPU (CC 8.9, 14 SMs)
+eps = 1e-06   restart period = 256   time limit = 40.0 s
+
+    instance   rows   cols      nnz | PDLP iter   syncs  rstrt  PDLP sec |  KKT worst   obj err |  CPU sec verdict
+------------------------------------------------------------------------------------------------------------------------------------
+      scfxm3    990   1371     7777 |     51712     406     14     2.928 |   9.52e-07  7.01e-07 |    0.063 OPTIMAL
+      ganges   1309   1681     6912 |    394752    3086     37    23.421 |   8.80e-07  1.07e-06 |    0.056 CONVERGED BUT OFF
+      sctap2   1090   1880     6714 |      2304      20      5     0.142 |   5.04e-07  8.43e-07 |    0.048 OPTIMAL
+     ship08s    778   2387     7114 |     13312     106      9     0.810 |   7.49e-07  1.33e-06 |    0.010 CONVERGED BUT OFF
+    pilot.we    722   2789     9126 |    500000    3910     28    28.705 |   2.65e-03  1.20e-03 |    0.403 iter/time limit
+       maros    846   1443     9614 |    115968     908     21     6.635 |   9.87e-07  1.64e-06 |    0.064 CONVERGED BUT OFF
+    stocfor2   2157   2031     8343 |     55040     432     15     3.180 |   8.71e-07  8.15e-07 |    0.147 OPTIMAL
+      sierra   1227   2036     7302 |     22272     176     15     1.279 |   7.78e-08  1.13e-08 |    0.025 OPTIMAL
+      25fv47    821   1571    10400 |    130816    1024     23     7.557 |   8.68e-07  1.86e-06 |    0.298 CONVERGED BUT OFF
+     ship12s   1151   2763     8178 |     27904     220     13     1.528 |   5.06e-07  1.01e-06 |    0.017 CONVERGED BUT OFF
+      sctap3   1480   2480     8874 |      1280      12      4     0.073 |   4.50e-07  7.39e-07 |    0.103 OPTIMAL
+    pilotnov    975   2172    13057 |     28928     228     16     1.591 |   7.44e-07  9.05e-08 |    0.309 OPTIMAL
+      czprob    929   3523    10669 |     62976     494     18     3.625 |   6.14e-07  2.42e-06 |    0.059 CONVERGED BUT OFF
+    pilot.ja    940   1988    14698 |    500000    3910     23    29.527 |   9.97e-03  1.85e-03 |    0.899 iter/time limit
+     ship08l    778   4283    12802 |     23552     186     15     1.393 |   7.11e-07  8.79e-07 |    0.032 OPTIMAL
+        bnl2   2324   3489    13999 |    500000    3910     30    28.584 |   1.43e-03  2.62e-03 |    0.553 iter/time limit
+       cycle   1903   2857    20720 |    123392     966     20     7.284 |   5.11e-07  5.09e-08 |    0.252 OPTIMAL
+     ship12l   1151   5427    16170 |     34560     272     16     2.065 |   5.21e-07  1.07e-06 |    0.069 CONVERGED BUT OFF
+      degen3   1503   1818    24646 |     24320     192     11     1.437 |   6.46e-07  6.10e-07 |    1.548 OPTIMAL
+    greenbea   2392   5405    30877 |    500000    3910     37    29.852 |   2.15e+00  2.50e-02 |    1.683 iter/time limit
+    greenbeb   2392   5405    30877 |    500000    3910     20    30.050 |   2.86e-02  1.21e-03 |    1.335 iter/time limit
+     80bau3b   2262   9799    21002 |     79360     622     19     4.800 |   3.72e-07  9.46e-08 |    0.649 OPTIMAL
+      d2q06c   2171   5167    32417 |    215552    1686     25    12.638 |   9.87e-07  1.68e-06 |    4.584 CONVERGED BUT OFF
+       woodw   1098   8405    37474 |     25600     202     16     1.709 |   9.76e-07  5.59e-07 |    0.172 OPTIMAL
+       pilot   1441   3652    43167 |    500000    3910     26    30.418 |   2.56e-04  5.02e-04 |    4.789 iter/time limit
+     pilot87   2030   4883    73152 |    421120    3292     33    26.258 |   9.93e-07  2.32e-06 |   16.604 CONVERGED BUT OFF
+
+====================================================================================================================================
+attempted 26   converged 20   converged AND within 1e-6 of the published optimum 11
+on converged instances: PDLP 110.351 s total
+where the CPU simplex also ran: PDLP 110.351 s   CPU 25.108 s   (PDLP 0.23x)
+iterations 1854720 across 14530 host syncs -- 128 iterations per sync
+CLEANDONE
