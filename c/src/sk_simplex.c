@@ -166,8 +166,15 @@ static void spx_repair_singleton_duals(const sk_model *m, sk_solution *s)
         const int x_lower = !SK_IS_NEG_INF(m->clow[col]) && fabs(s->x[col] - m->clow[col]) <= 1e-7;
         const int x_upper = !SK_IS_INF(m->cupp[col]) && fabs(s->x[col] - m->cupp[col]) <= 1e-7;
         if ((at_lower || at_upper) && (!x_lower && !x_upper ||
-            (x_lower && s->rc[col] < -1e-7) || (x_upper && s->rc[col] > 1e-7)))
-            s->y[i] -= s->rc[col] / a;
+            (x_lower && s->rc[col] < -1e-7) || (x_upper && s->rc[col] > 1e-7))) {
+            const double delta = -s->rc[col] / a;
+            s->y[i] += delta;
+            /* Keep the local residual synchronized when several singleton
+             * rows refer to the same variable.  Without this update each
+             * row would consume the stale pre-repair residual and can
+             * over-correct the public multiplier. */
+            s->rc[col] += a * delta;
+        }
     }
     free(count); free(row_col); free(row_pos);
 }
