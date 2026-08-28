@@ -12,6 +12,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* JSON has no literal for NaN or infinity, and C's %g prints bare `nan` and
+   `inf`, which no strict parser accepts.  A MILP legitimately produces both:
+   an infeasible model has no objective, and an unexplored tree has an infinite
+   dual bound.  Emit `null` so the record stays machine-readable and the
+   consumer can distinguish "no value" from a real number. */
+static void json_num(const char *key, double v, const char *fmt)
+{
+    char buf[64];
+    printf("\"%s\":", key);
+    if (v != v || v > 1e300 || v < -1e300) { printf("null"); return; }
+    snprintf(buf, sizeof buf, fmt, v);
+    printf("%s", buf);
+}
+
 static void usage(void)
 {
     fprintf(stderr,

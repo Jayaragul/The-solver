@@ -12,6 +12,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* JSON has no literal for NaN or infinity, and C's %g prints bare `nan` and
+   `inf`, which no strict parser accepts.  A MILP legitimately produces both:
+   an infeasible model has no objective, and an unexplored tree has an infinite
+   dual bound.  Emit `null` so the record stays machine-readable and the
+   consumer can distinguish "no value" from a real number. */
+static void json_num(const char *key, double v, const char *fmt)
+{
+    char buf[64];
+    printf("\"%s\":", key);
+    if (v != v || v > 1e300 || v < -1e300) { printf("null"); return; }
+    snprintf(buf, sizeof buf, fmt, v);
+    printf("%s", buf);
+}
+
 static void usage(void)
 {
     fprintf(stderr,
@@ -89,18 +103,22 @@ int main(int argc, char **argv)
             }
 
     printf("{\"file\":\"%s\",\"rows\":%d,\"cols\":%d,\"nnz\":%d,\"integers\":%d,"
-           "\"status\":\"%s\",\"objective\":%.12g,\"dual_bound\":%.12g,\"mip_gap\":%.3e,"
-           "\"primal_inf\":%.3e,\"integrality_inf\":%.3e,"
-           "\"nodes\":%lld,\"lp_solves\":%lld,\"simplex_iterations\":%lld,"
-           "\"propagations\":%lld,\"cuts_added\":%lld,\"heuristic_hits\":%lld,\"solutions\":%d,"
-           "\"max_depth\":%d,\"root_bound\":%.12g,"
-           "\"read_seconds\":%.6f,\"solve_seconds\":%.6f",
+           "\"status\":\"%s\",",
            path, m.nrow, m.ncol, m.A.p[m.ncol], sk_model_num_integer(&m),
-           sk_result_name(s.result), s.objective, s.dual_bound, s.mip_gap,
+           sk_result_name(s.result));
+    json_num("objective", s.objective, "%.12g");   printf(",");
+    json_num("dual_bound", s.dual_bound, "%.12g"); printf(",");
+    json_num("mip_gap", s.mip_gap, "%.3e");        printf(",");
+    printf("\"primal_inf\":%.3e,\"integrality_inf\":%.3e,"
+           "\"nodes\":%lld,\"lp_solves\":%lld,\"simplex_iterations\":%lld,"
+           "\"propagations\":%lld,\"cuts_added\":%lld,\"heuristic_hits\":%lld,"
+           "\"solutions\":%d,\"max_depth\":%d,",
            s.primal_infeasibility, maxint,
            st.nodes, st.lp_solves, st.simplex_iterations,
            st.propagations, st.cuts_added, st.heuristic_hits, st.solutions_found,
-           st.max_depth, st.root_bound, tread, tsolve);
+           st.max_depth);
+    json_num("root_bound", st.root_bound, "%.12g");
+    printf(",\"read_seconds\":%.6f,\"solve_seconds\":%.6f", tread, tsolve);
     if (!isnan(expect)) {
         double rel = fabs(s.objective - expect) / (1.0 + fabs(expect));
         printf(",\"expected\":%.12g,\"relative_error\":%.3e", expect, rel);
