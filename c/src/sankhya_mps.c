@@ -163,6 +163,7 @@ static SankhyaStatus read_mps_impl(const char* path, SankhyaLPModel* model, int 
     BoundDef* bounds = NULL; size_t bound_count = 0, bound_capacity = 0;
     double* raw_objective = NULL; unsigned char* raw_type = NULL; size_t raw_capacity = 0;
     char* objective_name = NULL; int integer_mode = 0; int maximize = 0;
+    char** free_rows = NULL; size_t free_row_count = 0, free_row_capacity = 0;
     SankhyaLPModel candidate; size_t i; int success = 0;
     if (path == NULL || model == NULL) return SANKHYA_INVALID_ARGUMENT;
     file = fopen(path, "r");
@@ -221,7 +222,23 @@ static SankhyaStatus read_mps_impl(const char* path, SankhyaLPModel* model, int 
         if (section == ROWS) {
             RowDef* expanded;
             if (token_count < 2 || (token[0][0] != 'N' && token[0][0] != 'L' && token[0][0] != 'G' && token[0][0] != 'E')) goto parse_failure;
-            if (token[0][0] == 'N') { if (objective_name == NULL) objective_name = copy_string(token[1]); continue; }
+            /* The first N row is the objective.  Any further N row is a free
+               row: the standard says it is carried in COLUMNS and RHS but
+               constrains nothing, so its name is remembered and its
+               coefficients are discarded rather than treated as an error. */
+            if (token[0][0] == 'N') {
+                if (objective_name == NULL) { objective_name = copy_string(token[1]); continue; }
+                if (free_row_count == free_row_capacity) {
+                    size_t next = free_row_capacity ? free_row_capacity * 2 : 4;
+                    char** grown = (char**)realloc(free_rows, next * sizeof(char*));
+                    if (!grown) goto parse_failure;
+                    free_rows = grown; free_row_capacity = next;
+                }
+                free_rows[free_row_count] = copy_string(token[1]);
+                if (!free_rows[free_row_count]) goto parse_failure;
+                ++free_row_count;
+                continue;
+            }
             if (row_count == row_capacity) { size_t next = row_capacity ? row_capacity * 2 : 16; expanded = (RowDef*)realloc(rows, next * sizeof(RowDef)); if (!expanded) goto parse_failure; rows = expanded; row_capacity = next; }
             rows[row_count].name = copy_string(token[1]); rows[row_count].type = token[0][0]; if (!rows[row_count].name) goto parse_failure; ++row_count;
         } else if (section == COLUMNS) {
@@ -249,7 +266,12 @@ static SankhyaStatus read_mps_impl(const char* path, SankhyaLPModel* model, int 
                     continue;
                 }
                 for (row_index = 0; row_index < row_count; ++row_index) if (strcmp(rows[row_index].name, token[pair]) == 0) { row = (int)row_index; break; }
-                if (row < 0) goto parse_failure;
+                if (row < 0) {
+                    size_t f; int is_free = 0;
+                    for (f = 0; f < free_row_count; ++f) if (strcmp(free_rows[f], token[pair]) == 0) { is_free = 1; break; }
+                    if (is_free) continue;      /* free row: nothing to store */
+                    goto parse_failure;
+                }
                 entry.row = (size_t)row; entry.column = (size_t)column; entry.value = value;
                 if (!add_entry(&entries, &entry_count, &entry_capacity, entry)) goto parse_failure;
             }
@@ -321,6 +343,7 @@ cleanup:
     if (ranges) { for (i = 0; i < range_count; ++i) free(ranges[i].name); free(ranges); }
     if (bounds) { for (i = 0; i < bound_count; ++i) { free(bounds[i].type); free(bounds[i].column); } free(bounds); }
     free(objective_name);
+    if (free_rows) { for (i = 0; i < free_row_count; ++i) free(free_rows[i]); free(free_rows); }
     return success ? SANKHYA_OK : SANKHYA_INVALID_ARGUMENT;
 }
 
