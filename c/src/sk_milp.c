@@ -485,7 +485,9 @@ static void milp_heuristic_round(milp *M, const double *xrel, int mode)
     double *savelo = NULL, *savehi = NULL;
     double *saved_x = NULL, *saved_y = NULL;
     sk_solution saved_relax;
-    int restore_relax = m->Q != NULL;
+    /* Always restored.  Any caller reading the scratch solution after this
+       returns must see the relaxation it passed in, not the heuristic's. */
+    int restore_relax = 1;
     double obj;
     sk_result r;
     int j, feasible = 1;
@@ -587,7 +589,7 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
     sk_options defaults;
     heap open;
     node *current = NULL;
-    double root_obj = 0.0, best_bound;
+    double root_obj = 0.0, best_bound, branch_value = 0.0;
     int j, nint;
     sk_status rc = SK_OK;
     sk_result final = SK_RESULT_NOT_RUN;
@@ -731,11 +733,19 @@ sk_status sk_milp_solve(const sk_model *m, const sk_options *o,
             node_free(current); current = NULL; continue;
         }
 
+        /* The branch value must be read from the relaxation that chose bvar.
+           The heuristic below re-solves into the same scratch solution, and a
+           value taken afterwards is the heuristic's rounded one -- which is
+           integral, so floor and ceil coincide and both children would fix
+           x_bvar to it, silently deleting every other value of that variable
+           from the search. */
+        branch_value = M.ls.x[bvar];
+
         if (o->mip_heuristics && (M.st.nodes % 64) == 1)
             milp_heuristic_round(&M, M.ls.x, (int)((M.st.nodes / 64) % 3));
 
         {
-            double xv = M.ls.x[bvar];
+            double xv = branch_value;
             node *down = node_child(current, bvar, 1, floor(xv), obj, bfrac);
             node *up   = node_child(current, bvar, 0, ceil(xv),  obj, 1.0 - bfrac);
             if (!down || !up) { node_free(down); node_free(up); node_free(current); rc = SK_ERR_MEMORY; goto cleanup; }
