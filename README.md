@@ -223,6 +223,10 @@ bounds.
 The focused cover-cut ablation is recorded in
 [MILP_COVER_CUT](bench/results/MILP_COVER_CUT.md); it measures the bundled
 binary smoke instance with cuts enabled and disabled under the same limit.
+The current hard-instance evidence is retained in the [`markshare2`
+diagnostic](bench/results/MIPLIB_MARKSHARE2_DIAGNOSTIC.md), [`pk1` diagnostic](bench/results/MIPLIB_PK1_DIAGNOSTIC.md),
+and [branching ablation](bench/results/MIPLIB_MARKSHARE2_BRANCHING_ABLATION.md);
+none of these limits are presented as optimality claims.
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
 The original baseline records its initial one proven optimum; the optimized
