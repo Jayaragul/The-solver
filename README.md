@@ -105,6 +105,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | CUDA QP CLI | DPKLO1 diagonal and TINYQP off-diagonal QPS solved on RTX 3050; objectives independently verified | recorded |
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
+| Windows MIPLIB resource accounting | MSVC benchmark now reports process CPU seconds/CPU% from `GetProcessTimes` instead of silently emitting zero | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Netlib 5-second sweep | 27/31 LPs optimal with independent residual checks; 4 declared time limits, no false optimum | recorded |
 | Netlib / HiGHS comparison | 47/50 solutions agree with isolated HiGHS 1.11; 3 limits/stalls retained in the record | recorded |

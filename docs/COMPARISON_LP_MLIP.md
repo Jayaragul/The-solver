@@ -16,6 +16,7 @@ source was inspected locally; no solver library was copied or linked.
 | QP / MIQP | Native CPU QP (closed-form, KKT, PDHG), CUDA sparse/diagonal QP, guarded small MIQP | LP/MILP-focused; its documented v1 status defers QP | SANKHYA is clearly broader for the requested QP scope. |
 | GPU | CUDA SpMV, LP/QP PDHG, projected KKT checks | CUDA SpMV, pricing, and device-resident PDLP | Comparable architecture; SANKHYA’s QP path and KKT admission checks are an advantage for this goal. |
 | Verification | Public model validation plus original-space primal/dual/KKT and integrality checks; non-certified results are downgraded | Extensive original-space checks and reproducibility metadata | Both follow the right invariant. SANKHYA’s C API exposes validation before solving. |
+| Benchmark telemetry | MIPLIB runner records wall time, CPU time, memory, and CUDA availability; Windows CPU time now uses `GetProcessTimes` | Reproducibility metadata and solver counters | Resource comparisons are now meaningful on the native MSVC/CUDA host. |
 | Portability | CUDA is optional for the C core; native CPU build remains available | C++ core is configured around CUDA in the comparison build | SANKHYA is more usable on CPU-only hosts. |
 
 ## Adoption decision

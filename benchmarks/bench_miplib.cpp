@@ -20,6 +20,11 @@
 
 #ifdef __linux__
 #include <sys/resource.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -49,6 +54,17 @@ ResourceSnapshot resources() {
                                static_cast<double>(usage.ru_stime.tv_sec) +
                                static_cast<double>(usage.ru_stime.tv_usec) / 1e6;
         snapshot.peak_rss_kb = usage.ru_maxrss;
+    }
+#elif defined(_WIN32)
+    // Windows reports process CPU time as 100-ns FILETIME intervals.  Keep
+    // this accounting local to the benchmark so CPU% remains meaningful on
+    // the MSVC/CUDA machine used for the published comparisons.
+    FILETIME creation {}, exit {}, kernel {}, user {};
+    if (GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user)) {
+        ULARGE_INTEGER kernel_ticks {kernel.dwLowDateTime, kernel.dwHighDateTime};
+        ULARGE_INTEGER user_ticks {user.dwLowDateTime, user.dwHighDateTime};
+        snapshot.cpu_seconds = static_cast<double>(kernel_ticks.QuadPart + user_ticks.QuadPart) /
+                               1.0e7;
     }
 #endif
     try {
