@@ -122,10 +122,9 @@ int main(int argc, char** argv) {
     const double time_limit = argc > 4 ? std::stod(argv[4]) : 60.0;
     const std::string branching_rule = argc > 5 ? argv[5] : "reliability";
     // docs/architecture/LP.md \S1/\S2, MilpSolverOptions::
-    // warm_start_node_relaxations: off by default, matching that option's
-    // own default, so a plain invocation of this benchmark reproduces the
-    // existing baseline exactly.
-    const bool warm_start = argc > 6 && std::string(argv[6]) == "on";
+    // Warm starts are the production default; pass "off" for a cold-start
+    // ablation. The legacy "on" spelling remains accepted.
+    const bool warm_start = !(argc > 6 && std::string(argv[6]) == "off");
     const std::string parallel_mode = argc > 7 ? argv[7] : "auto";
 
     std::cout << std::unitbuf;

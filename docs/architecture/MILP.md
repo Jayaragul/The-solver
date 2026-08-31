@@ -2,8 +2,9 @@
 
 **Status:** PHASE 3 implementation. The first working MILP engine is a
 CPU-resident, deterministic branch-and-bound solver over certified simplex
-relaxations. Cuts, warm starts, and advanced branching are explicit follow-up
-milestones; they are not silently represented as implemented features.
+relaxations, with root cover cuts, reliability branching, and warm-started
+node relaxations enabled by default. Full parallel node search and conflict
+analysis remain follow-up milestones.
 
 ---
 
@@ -67,16 +68,15 @@ re-solve. The sparse matrix is copied once for the solve and then reused;
 node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
-**Exception, off by default:** `MilpSolverOptions::warm_start_node_relaxations`
+**Optional cold-start ablation:** `MilpSolverOptions::warm_start_node_relaxations`
 (`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
 entirely, constructing `Simplex` directly and seating the parent's exported
 basis instead. A warm basis is only valid over the *same* augmented column
 space it was computed for, which node-level presolve is not guaranteed to
 preserve under a tightened bound — so this path trades node presolve away
-rather than trying to reconcile the two. `MEASURED` to be a net loss on the
-current MIPLIB benchmark for exactly that reason (§4.1's certified-bound
-invariant is unaffected either way — the traded-away presolve reductions,
-not correctness, are what the measurement blames).
+rather than trying to reconcile the two. This trades some node-local presolve
+reductions for substantially cheaper certified re-solves; the bound invariant
+is unaffected either way.
 
 ## 2. Cuts (implemented root mixed-row cover subset)
 

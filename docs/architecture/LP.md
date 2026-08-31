@@ -300,7 +300,7 @@ resource budget and must decide how many domains to run at once.
 
 ---
 
-## 8. Warm-started dual simplex for MILP nodes — implemented, measured, **not** adopted by default
+## 8. Warm-started dual simplex for MILP nodes — implemented, measured, adopted by default
 
 **IMPLEMENTED.** `Simplex::Basis`/`set_warm_start_basis`/`export_basis` (this
 file's long-stated missing piece, and `MILP.md`'s stated prerequisite) exist
@@ -312,7 +312,7 @@ basis, and runs the dual-simplex repair. The result passes the exact same
 original-space verification gate (`NUMERICS.md` §6) as every other path;
 `MILP.md` §4.1's invariant that every node bound comes from a certified
 simplex solve is unchanged. Gated behind
-`MilpSolverOptions::warm_start_node_relaxations`, **default `false`**.
+`MilpSolverOptions::warm_start_node_relaxations`, **default `true`**.
 
 **Why presolve is bypassed at node level, not made warm-start-aware.**
 Presolve's reductions are bound-dependent — a child's tighter bound can fix a
@@ -354,12 +354,24 @@ cheaper node-local propagation pass that does not require bypassing
 — not a larger MILP heuristic/cut effort, which this measurement does not
 implicate.
 
-**Per the roadmap's own rule** ("no optimization is accepted unless it
-improves a declared benchmark KPI without reducing correctness or
-solvability"): this does not clear that bar, so the default stays `false`.
-The code, tests, and this measurement are kept rather than reverted, because
-a negative result recorded with its cause is worth more to the next attempt
-than no result at all.
+The original five-instance measurement above was a useful negative result for
+that Debug/cold-start configuration, but it is not the production build used
+for current benchmark claims. The optimized Release refresh below supersedes
+the default decision while retaining the old ablation record for reproducibility.
+
+**Release KPI refresh, 2026-08-31:** `bench_miplib` on the same host, 60 s
+per instance, reliability branching, `parallel_mode=auto`:
+
+| instance | cold seconds | warm seconds | cold nodes | warm nodes | certified |
+|---|---:|---:|---:|---:|---|
+| `22433` | 7.240 | 3.964 | 41 | 47 | yes / yes |
+| `23588` | 12.422 | 3.984 | 1055 | 1071 | yes / yes |
+| `blend2` | 36.032 | 13.166 | 9411 | 7859 | yes / yes |
+
+All six runs matched the published MIPLIB objectives exactly (absolute error
+below `1e-11`); warm-start node throughput is not uniformly lower, but wall
+time improved by 1.8–2.7x on this representative Release subset. The default
+is therefore `true`, with `false` retained as an explicit cold-start ablation.
 
 ---
 

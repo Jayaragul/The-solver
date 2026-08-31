@@ -58,13 +58,13 @@ struct MilpSolverOptions {
     // LP.md \S1/\S2, MILP.md's stated prerequisite): a non-root node
     // solves its LP relaxation by seating its parent's terminal basis and
     // repairing primal feasibility, instead of a full cold solve_lp call.
-    // Default false so every existing caller/test/benchmark is unaffected
-    // until a KPI comparison (CLAUDE_OPUS_SOLVER_ROADMAP.md's own rule)
-    // shows a net win on the MIPLIB benchmark; only then does a follow-up
-    // change flip this default. Root and its direct children never warm
+    // Root and its direct children never warm
     // start (the root solve goes through solve_lp's presolve, which a
     // warm basis is not guaranteed to remain valid under).
-    bool warm_start_node_relaxations = false;
+    // Enabled by default after the optimized MIPLIB KPI refresh. Callers can
+    // disable it for cold-start ablations or when node-local presolve is more
+    // valuable than basis reuse on a particular model family.
+    bool warm_start_node_relaxations = true;
 };
 
 struct MilpSolution {
