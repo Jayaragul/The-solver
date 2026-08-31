@@ -43,6 +43,15 @@ Strong-branching probes are counted separately from processed B&B nodes and
 are never used as proofs: an unsuccessful probe is ignored for ranking, while
 the actual child relaxation still determines pruning and termination.
 
+When `LpSolverOptions::parallel_mode` is not `SERIAL`, up to the configured
+strong-branching candidate limit is evaluated concurrently once the relaxation
+matrix is large enough to amortize the OpenMP fork/barrier. `PARALLEL` forces
+this frontier path for controlled experiments. Each probe owns a copied bound
+workspace and uses serial inner LP kernels to avoid nested oversubscription;
+the pseudocost updates, incumbent gate, and node queue remain single-writer and
+therefore deterministic. This is deliberately narrower than parallel
+branch-and-bound: no live node or proof state is shared between workers.
+
 **Symmetry interaction (see §3):** on instances with interchangeable units/periods, multiple branching candidates may be structurally equivalent; v1 does not attempt symmetry-aware branching-candidate deduplication (a PROPOSED MODIFICATION noted in SOTA.md §1.1 but not validated) — this is deferred pending evidence from §3's simpler static symmetry-breaking that dynamic candidate deduplication is even needed.
 
 ### 1.4 Node presolve

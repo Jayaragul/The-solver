@@ -64,7 +64,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   solved by exhaustive active-set KKT certification (with the closed form
   retained for separable bounds-only nodes). Larger MIQP remains future work.
   Validated binary cover cuts are generated for suitable positive knapsack
-  rows; conflict analysis and parallel search remain future work.
+  rows; independent strong-branching probes can run in parallel, while full
+  parallel node search and conflict analysis remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
   step size.
