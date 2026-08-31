@@ -130,6 +130,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
+| Maros–Mészáros QP Release refresh | Optimized native CUDA-enabled build: HS35MOD and DPKLO1 certified; QPCBLEND retained with explicit dual-residual limit | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
 
 The repository contains no benchmark score that has not actually been measured.
