@@ -140,7 +140,8 @@ SIHPS_TEST(milp_proves_integer_infeasibility_by_exhausting_nodes) {
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::INFEASIBLE);
     SIHPS_ASSERT_TRUE(!result.has_incumbent);
-    SIHPS_ASSERT_TRUE(result.nodes_processed >= 3);
+    SIHPS_ASSERT_TRUE(result.nodes_processed >= 1);
+    SIHPS_ASSERT_EQ(result.integer_gcd_prunes, 1);
 }
 
 SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {

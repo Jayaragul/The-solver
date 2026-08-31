@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -106,6 +107,52 @@ void round_integer_bounds(const MilpProblem& problem, std::vector<double>& lower
         if (std::isfinite(lower[jj])) lower[jj] = std::ceil(lower[jj]);
         if (std::isfinite(upper[jj])) upper[jj] = std::floor(upper[jj]);
     }
+}
+
+bool integer_equality_gcd_infeasible(const MilpProblem& problem,
+                                     const std::vector<double>& lower) {
+    const LpProblem& lp = problem.relaxation;
+    constexpr double kIntegerTolerance = 1e-9;
+    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+        if (lp.row_types[static_cast<std::size_t>(row)] != 'E') continue;
+        const auto begin = lp.A.row_ptr()[row];
+        const auto end = lp.A.row_ptr()[row + 1];
+        std::int64_t divisor = 0;
+        long double residual = lp.rhs[static_cast<std::size_t>(row)];
+        bool applicable = true;
+        for (std::int32_t k = begin; k < end; ++k) {
+            const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
+            if (problem.variable_types[j] == VariableType::CONTINUOUS ||
+                !std::isfinite(lower[j])) {
+                applicable = false;
+                break;
+            }
+            const double coefficient = lp.A.values()[k];
+            const double integral_coefficient = std::round(coefficient);
+            if (std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
+                std::fabs(lower[j] - std::round(lower[j])) > kIntegerTolerance ||
+                std::fabs(integral_coefficient) >
+                    static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+                applicable = false;
+                break;
+            }
+            residual -= static_cast<long double>(integral_coefficient) * lower[j];
+            divisor = std::gcd(divisor,
+                               static_cast<std::int64_t>(std::llabs(
+                                   static_cast<std::int64_t>(integral_coefficient))));
+        }
+        if (!applicable || divisor <= 1) continue;
+        const long double nearest = std::round(residual);
+        if (std::fabs(static_cast<double>(residual - nearest)) > kIntegerTolerance) {
+            return true;
+        }
+        if (std::fabs(static_cast<double>(nearest)) >
+            static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+            continue;
+        }
+        if (std::llabs(static_cast<std::int64_t>(nearest)) % divisor != 0) return true;
+    }
+    return false;
 }
 
 bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
@@ -702,6 +749,12 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
         if (!bounds_are_valid(lower, upper)) {
             ++solution.nodes_pruned;
+            continue;
+        }
+        if (options.enable_integer_gcd_tightening &&
+            integer_equality_gcd_infeasible(problem, lower)) {
+            ++solution.nodes_pruned;
+            ++solution.integer_gcd_prunes;
             continue;
         }
         workspace.lower = lower;

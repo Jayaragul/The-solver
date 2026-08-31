@@ -68,6 +68,14 @@ re-solve. The sparse matrix is copied once for the solve and then reused;
 node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
+Before that LP call, an optional integer-aware GCD gate checks equality rows
+whose nonzero variables, coefficients, and active lower bounds are all
+integral. After shifting by the lower bounds, a right-hand side that is not
+divisible by the row coefficient GCD proves the node infeasible immediately.
+Rows with continuous variables or non-integral data are conservatively skipped;
+the gate only prunes when the modular proof is exact. `MilpSolution::
+integer_gcd_prunes` exposes how often this presolve proof fired.
+
 **Optional cold-start ablation:** `MilpSolverOptions::warm_start_node_relaxations`
 (`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
 entirely, constructing `Simplex` directly and seating the parent's exported

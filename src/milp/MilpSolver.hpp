@@ -65,6 +65,10 @@ struct MilpSolverOptions {
     // disable it for cold-start ablations or when node-local presolve is more
     // valuable than basis reuse on a particular model family.
     bool warm_start_node_relaxations = true;
+    // Detect modularly impossible all-integer equality rows before invoking
+    // the LP relaxation. Non-integral coefficients, bounds, or continuous
+    // variables make the check conservatively skip the row.
+    bool enable_integer_gcd_tightening = true;
 };
 
 struct MilpSolution {
@@ -92,6 +96,7 @@ struct MilpSolution {
     // is a signal worth investigating, not an accepted steady state.
     std::uint64_t warm_started_relaxations = 0;
     std::uint64_t warm_start_verification_fallbacks = 0;
+    std::uint64_t integer_gcd_prunes = 0;
 };
 
 MilpSolution solve_milp(const MilpProblem& problem,

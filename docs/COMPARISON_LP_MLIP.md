@@ -11,7 +11,7 @@ source was inspected locally; no solver library was copied or linked.
 |---|---|---|---|
 | Core language | C11 ABI plus CUDA C kernels | C++17 plus CUDA C++ | SANKHYA is easier to embed from C; SIHPS is easier to extend with value types and RAII. |
 | LP | Bounded revised simplex, sparse LU, scaling, certificate repair, CUDA PDHG | Primal and dual revised simplex, Devex, sparse LU, warm starts, GPU PDLP/pricing | SIHPS has the broader LP control layer; both retain CPU control for pivot decisions. |
-| Presolve | Conservative interval and singleton reductions | Adds integer-bound rounding, scoped doubleton substitution, and GCD tightening | Integer-bound rounding is the safest improvement and is now enabled in our MILP nodes. The other reductions remain opt-in work because postsolve correctness is harder. |
+| Presolve | Conservative interval and singleton reductions | Adds integer-bound rounding, scoped doubleton substitution, and GCD tightening | Integer-bound rounding and a conservative equality-row GCD infeasibility gate are now enabled in our MILP nodes. Doubleton substitution remains staged because reversible postsolve correctness is harder. |
 | MILP | Branch-and-bound, best-bound queue, pseudocost/reliability branching, cover cuts, rounding/diving/local improvement | Adds the same foundations plus optional GMI/RENS/GCD paths, exact binary meet-in-the-middle for one structural class, and a parallel tree | SIHPS has stronger breadth. Its exact binary path is valuable only when its structural gate proves applicable; it is not a general MILP replacement. |
 | QP / MIQP | Native CPU QP (closed-form, KKT, PDHG), CUDA sparse/diagonal QP, guarded small MIQP | LP/MILP-focused; its documented v1 status defers QP | SANKHYA is clearly broader for the requested QP scope. |
 | GPU | CUDA SpMV, LP/QP PDHG, projected KKT checks | CUDA SpMV, pricing, and device-resident PDLP | Comparable architecture; SANKHYA’s QP path and KKT admission checks are an advantage for this goal. |
@@ -23,14 +23,14 @@ source was inspected locally; no solver library was copied or linked.
 
 The comparison repository has a better *research architecture* for the next
 MILP phase: integer-aware reductions, exact structural subsolvers, and a
-parallel node layer. We are adopting the first of these now because it is
-unconditionally sound and needs no postsolve mapping: every integer node bound
-is rounded inward before its LP relaxation. The option can be disabled for
-controlled ablations.
+parallel node layer. We are adopting the sound, local reductions first: every
+integer node bound is rounded inward before its LP relaxation, and exact
+modularly impossible equality rows are rejected before solving. Neither needs
+a postsolve mapping; both options can be disabled for controlled ablations.
 
 We are not copying the comparison repository's full presolve or parallel tree
-blindly. Doubleton substitution and GCD tightening need a complete reversible
-postsolve record and dedicated differential tests; exact binary enumeration
+blindly. Doubleton substitution needs a complete reversible postsolve record
+and dedicated differential tests; exact binary enumeration
 needs a structural proof gate and a memory budget; parallel B&B needs bounded
 live-basis ownership and deterministic verification under races. Those are the
 next staged integrations, each enabled only after a measured correctness and
