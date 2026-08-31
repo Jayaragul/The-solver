@@ -107,6 +107,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Release CUDA architecture regression | Rebuilt stale `sm_75` cache for supported `sm_86;sm_89`; Release sparse smoke, LP PDHG, and QP CLI pass | fixed and recorded |
 | Release native/CUDA CTest matrix | After rebuilding all targets, 28/28 C and CUDA tests pass under the Release configuration | passed |
 | Release CUDA QPCBLEND | 100,000-iteration sparse-QP run executes on the corrected GPU path; independent feasibility check passes, residual limit retained | recorded |
+| CUDA QPCBLEND convergence extension | 1,000,000 iterations reduce KKT residual from `6.528e-05` to `2.275e-05`; independent check passes, tolerance limit retained | recorded |
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Windows MIPLIB resource accounting | MSVC benchmark now reports process CPU seconds/CPU% from `GetProcessTimes` instead of silently emitting zero | passed |
