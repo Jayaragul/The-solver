@@ -1,6 +1,9 @@
 #include "MemoryArena.hpp"
 
 #include <cstdlib>
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
 
 namespace sihps {
 
@@ -14,7 +17,12 @@ MemoryArena::MemoryArena(std::size_t capacity_bytes, std::size_t alignment)
     // alignment-sized block so it always has a valid, if useless, base_).
     const std::size_t rounded =
         ((capacity_ + alignment_ - 1) / alignment_) * alignment_;
-    void* p = std::aligned_alloc(alignment_, rounded == 0 ? alignment_ : rounded);
+    const std::size_t allocation_size = rounded == 0 ? alignment_ : rounded;
+#if defined(_MSC_VER)
+    void* p = _aligned_malloc(allocation_size, alignment_);
+#else
+    void* p = std::aligned_alloc(alignment_, allocation_size);
+#endif
     if (!p) {
         throw std::bad_alloc();
     }
@@ -22,7 +30,11 @@ MemoryArena::MemoryArena(std::size_t capacity_bytes, std::size_t alignment)
 }
 
 MemoryArena::~MemoryArena() {
+#if defined(_MSC_VER)
+    _aligned_free(base_);
+#else
     std::free(base_);
+#endif
 }
 
 void* MemoryArena::allocate_raw(std::size_t bytes, std::size_t align) {

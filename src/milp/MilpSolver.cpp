@@ -98,6 +98,16 @@ bool bounds_are_valid(const std::vector<double>& lower, const std::vector<double
     return true;
 }
 
+void round_integer_bounds(const MilpProblem& problem, std::vector<double>& lower,
+                          std::vector<double>& upper) {
+    for (std::int32_t j = 0; j < problem.n_cols(); ++j) {
+        const auto jj = static_cast<std::size_t>(j);
+        if (problem.variable_types[jj] == VariableType::CONTINUOUS) continue;
+        if (std::isfinite(lower[jj])) lower[jj] = std::ceil(lower[jj]);
+        if (std::isfinite(upper[jj])) upper[jj] = std::floor(upper[jj]);
+    }
+}
+
 bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
                     const std::vector<double>& lower, const std::vector<double>& upper,
                     double feasibility_tolerance, ParallelMode parallel_mode) {
@@ -687,6 +697,9 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         std::vector<double> lower;
         std::vector<double> upper;
         materialize_bounds(*node, root_lower, root_upper, lower, upper);
+        if (options.enable_integer_bound_rounding) {
+            round_integer_bounds(problem, lower, upper);
+        }
         if (!bounds_are_valid(lower, upper)) {
             ++solution.nodes_pruned;
             continue;

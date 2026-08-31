@@ -106,7 +106,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
-| Netlib 5-second sweep | 25/31 LPs optimal with independent residual checks; 6 declared time limits, no false optimum | recorded |
+| Netlib 5-second sweep | 27/31 LPs optimal with independent residual checks; 4 declared time limits, no false optimum | recorded |
 | Netlib / HiGHS comparison | 47/50 solutions agree with isolated HiGHS 1.11; 3 limits/stalls retained in the record | recorded |
 | Netlib AFIRO | default norm-scaled CUDA PDHG: objective error `5.54e-8`; primal verification at `1e-5` | passed |
 | HiGHS comparison on AFIRO | isolated HiGHS 1.15.1 baseline recorded | passed |
@@ -244,6 +244,11 @@ build\native\sk_bench.exe --time-limit 5 bench\smoke\unit_lp.mps bench\smoke\tin
 ```
 
 ## Roadmap
+
+The design comparison that informed the current MILP work is documented in
+[`docs/COMPARISON_LP_MLIP.md`](docs/COMPARISON_LP_MLIP.md). It records which
+ideas were adopted from the related native C++/CUDA implementation and which
+remain staged behind proof and benchmark gates.
 
 Completed foundation:
 

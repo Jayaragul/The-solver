@@ -1,6 +1,6 @@
 # Netlib-31 — native revised-simplex fixed-limit sweep
 
-Date: 2026-08-25
+Date: 2026-08-31 (certificate-repair refresh)
 
 This is the first breadth check of the native C simplex path. It is deliberately
 reported as a fixed-limit correctness sweep, not as a performance ranking.
@@ -28,11 +28,11 @@ build\cmake-cuda\sk_lp.exe bench\data\netlib\mps\<name>.mps \
 
 | Outcome | Count |
 |---|---:|
-| Optimal with independent diagnostics | 25 |
-| Time limit at 5 s | 6 |
+| Optimal with independent diagnostics | 27 |
+| Time limit at 5 s | 4 |
 | Incorrectly claimed optimum | 0 |
 
-For the 25 optimal rows, the largest reported primal violation was
+For the 27 optimal rows, the largest reported primal violation was
 `4.657e-10` (`agg`), the largest dual infeasibility was `2.648e-7`
 (`etamacro`), and the largest relative LP gap was `1.102e-9` (`etamacro`).
 Those values are reported rather than rounded away.

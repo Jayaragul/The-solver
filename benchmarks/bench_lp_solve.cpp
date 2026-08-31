@@ -23,8 +23,11 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
-#include <sys/resource.h>
 #include <vector>
+
+#ifdef __linux__
+#include <sys/resource.h>
+#endif
 
 using namespace sihps;
 namespace fs = std::filesystem;
@@ -34,9 +37,15 @@ namespace {
 constexpr std::int32_t kMaxRows = 600; // dense O(m^2)-per-iteration cap for this pass
 
 long peak_rss_kb() {
+#ifdef __linux__
     struct rusage ru;
     getrusage(RUSAGE_SELF, &ru);
     return ru.ru_maxrss; // KB on Linux
+#else
+    // A portable peak-RSS query is not available in the MSVC CRT. Keep the
+    // benchmark runnable and report zero rather than inventing a value.
+    return 0;
+#endif
 }
 
 struct SolveRecord {

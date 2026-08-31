@@ -32,6 +32,11 @@ struct MilpSolverOptions {
     double integrality_tolerance = 1e-7;
     double feasibility_tolerance = 1e-6;
     double objective_tolerance = 1e-8;
+    // Round every MILP node's integer bounds inward before its LP
+    // relaxation. This is unconditionally sound: an integer-feasible point
+    // already satisfies the rounded box. It also makes fractional bounds
+    // derived by branching or propagation explicit to the LP engine.
+    bool enable_integer_bound_rounding = true;
     bool use_rounding_heuristic = true;
     // Deterministic LP diving only proposes incumbents; it never changes
     // node pruning or optimality certification. It is limited so a failed

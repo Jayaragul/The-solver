@@ -1,5 +1,6 @@
 #include "MpsReader.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <limits>
@@ -21,6 +22,34 @@ std::vector<std::string> tokenize(const std::string& line) {
         tokens.push_back(tok);
     }
     return tokens;
+}
+
+// Classic Netlib files use the fixed MPS columns for records whose names may
+// contain embedded blanks, or whose optional vector-name field is blank.
+// Whitespace tokenization cannot distinguish those cases.  These fields are
+// used only when a line's free-format token shape is impossible.
+struct FixedFields {
+    std::string f1, f2, f3, f4, f5, f6;
+};
+
+std::string fixed_field(const std::string& line, std::size_t start, std::size_t len) {
+    if (start >= line.size()) return "";
+    const std::string field = line.substr(start, std::min(len, line.size() - start));
+    const std::size_t begin = field.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos) return "";
+    const std::size_t end = field.find_last_not_of(" \t\r\n");
+    return field.substr(begin, end - begin + 1);
+}
+
+FixedFields tokenize_fixed(const std::string& line) {
+    FixedFields f;
+    f.f1 = fixed_field(line, 1, 2);
+    f.f2 = fixed_field(line, 4, 8);
+    f.f3 = fixed_field(line, 14, 8);
+    f.f4 = fixed_field(line, 24, 12);
+    f.f5 = fixed_field(line, 39, 8);
+    f.f6 = fixed_field(line, 49, 12);
+    return f;
 }
 
 std::string normalized_token(std::string token) {
@@ -75,6 +104,10 @@ MpsModel read_mps_file(const std::string& path) {
         }
 
         if (section == "ROWS") {
+            if (tokens.size() != 2) {
+                const FixedFields f = tokenize_fixed(line);
+                tokens = {f.f1, f.f2};
+            }
             if (tokens.size() < 2) {
                 throw std::runtime_error("MpsReader: malformed ROWS line: " + line);
             }
@@ -113,7 +146,14 @@ MpsModel read_mps_file(const std::string& path) {
                 }
                 continue;
             }
-            if (tokens.size() < 3) {
+            if (tokens.size() < 3 || ((tokens.size() - 1) % 2) != 0) {
+                const FixedFields f = tokenize_fixed(line);
+                tokens.clear();
+                if (!f.f2.empty()) tokens.push_back(f.f2);
+                if (!f.f3.empty()) { tokens.push_back(f.f3); tokens.push_back(f.f4); }
+                if (!f.f5.empty()) { tokens.push_back(f.f5); tokens.push_back(f.f6); }
+            }
+            if (tokens.size() < 3 || ((tokens.size() - 1) % 2) != 0) {
                 throw std::runtime_error("MpsReader: malformed COLUMNS line: " + line);
             }
             const std::string& col_name = tokens[0];
@@ -161,6 +201,10 @@ MpsModel read_mps_file(const std::string& path) {
             if (model.rhs.empty() && model.n_rows > 0) {
                 model.rhs.assign(static_cast<std::size_t>(model.n_rows), 0.0);
             }
+            if (tokens.size() < 3 || ((tokens.size() - 1) % 2) != 0) {
+                const FixedFields f = tokenize_fixed(line);
+                tokens = {f.f2, f.f3, f.f4, f.f5, f.f6};
+            }
             for (std::size_t k = 1; k + 1 < tokens.size(); k += 2) {
                 const std::string& row_name = tokens[k];
                 const double value = std::stod(tokens[k + 1]);
@@ -180,6 +224,10 @@ MpsModel read_mps_file(const std::string& path) {
             }
 
         } else if (section == "RANGES") {
+            if (tokens.size() < 3 || ((tokens.size() - 1) % 2) != 0) {
+                const FixedFields f = tokenize_fixed(line);
+                tokens = {f.f2, f.f3, f.f4, f.f5, f.f6};
+            }
             for (std::size_t k = 1; k + 1 < tokens.size(); k += 2) {
                 const std::string& row_name = tokens[k];
                 const double value = std::stod(tokens[k + 1]);
@@ -208,6 +256,10 @@ MpsModel read_mps_file(const std::string& path) {
             }
 
         } else if (section == "BOUNDS") {
+            if (tokens.size() < 3) {
+                const FixedFields f = tokenize_fixed(line);
+                tokens = {f.f1, f.f2, f.f3, f.f4};
+            }
             if (tokens.size() < 3) {
                 throw std::runtime_error("MpsReader: malformed BOUNDS line: " + line);
             }

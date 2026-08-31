@@ -80,6 +80,12 @@ RunMetadata RunMetadata::capture() {
 
 #ifdef _OPENMP
     m.thread_count = omp_get_max_threads();
+#if defined(_MSC_VER)
+    // MSVC's classic OpenMP header exposes the worker-count query but not
+    // omp_sched_t/omp_get_schedule. Preserve the useful count and report the
+    // unavailable schedule honestly instead of making the build non-portable.
+    m.openmp_schedule = "unknown (MSVC OpenMP)";
+#else
     {
         omp_sched_t kind;
         int chunk = 0;
@@ -88,6 +94,7 @@ RunMetadata RunMetadata::capture() {
         os << "kind=" << static_cast<int>(kind) << " chunk=" << chunk;
         m.openmp_schedule = os.str();
     }
+#endif
 #else
     m.thread_count = 1;
     m.openmp_schedule = "disabled";
