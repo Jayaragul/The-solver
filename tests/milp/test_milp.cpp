@@ -207,6 +207,27 @@ SIHPS_TEST(milp_integer_inequality_rounding_handles_negative_g_rows) {
     SIHPS_ASSERT_EQ(result.nodes_processed, 1);
 }
 
+SIHPS_TEST(milp_integer_gcd_gate_rejects_interval_feasible_parity_gap) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(
+        1, 3, {Triplet{0, 0, 2.0}, Triplet{0, 1, 2.0}, Triplet{0, 2, 2.0}});
+    lp.obj = {0.0, 0.0, 0.0};
+    lp.rhs = {3.0};
+    lp.row_types = {'E'};
+    lp.lower = {0.0, 0.0, 0.0};
+    lp.upper = {10.0, 10.0, 10.0};
+    sihps::apply_default_row_bounds(lp);
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER,
+                                   VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::INFEASIBLE);
+    SIHPS_ASSERT_TRUE(result.integer_gcd_prunes >= 1);
+}
+
 SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     MilpSolverOptions options;
     options.node_limit = 1;
