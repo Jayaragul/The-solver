@@ -98,6 +98,7 @@ struct MilpSolution {
     std::uint64_t warm_started_relaxations = 0;
     std::uint64_t warm_start_verification_fallbacks = 0;
     std::uint64_t integer_gcd_prunes = 0;
+    std::uint64_t integer_propagation_prunes = 0;
     std::uint64_t integer_bound_tightenings = 0;
 };
 

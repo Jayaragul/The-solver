@@ -161,7 +161,10 @@ bool propagate_integer_equality_bounds(const MilpProblem& problem,
                                        std::uint64_t& tightenings) {
     const LpProblem& lp = problem.relaxation;
     constexpr double kIntegerTolerance = 1e-9;
-    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+    const std::int32_t max_passes = std::max<std::int32_t>(1, std::min<std::int32_t>(8, lp.n_rows()));
+    for (std::int32_t pass = 0; pass < max_passes; ++pass) {
+        const std::uint64_t pass_start = tightenings;
+        for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
         if (lp.row_types[static_cast<std::size_t>(row)] != 'E') continue;
         const auto begin = lp.A.row_ptr()[row];
         const auto end = lp.A.row_ptr()[row + 1];
@@ -211,6 +214,8 @@ bool propagate_integer_equality_bounds(const MilpProblem& problem,
                 ++tightenings;
             }
         }
+        }
+        if (tightenings == pass_start) break;
     }
     return bounds_are_valid(lower, upper);
 }
@@ -815,7 +820,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             !propagate_integer_equality_bounds(problem, lower, upper,
                                                solution.integer_bound_tightenings)) {
             ++solution.nodes_pruned;
-            ++solution.integer_gcd_prunes;
+            ++solution.integer_propagation_prunes;
             continue;
         }
         if (options.enable_integer_gcd_tightening &&
