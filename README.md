@@ -105,6 +105,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | CUDA PDHG LP smoke test | one-variable LP compiled and solved on GPU | passed |
 | CUDA QP CLI | DPKLO1 diagonal and TINYQP off-diagonal QPS solved on RTX 3050; objectives independently verified | recorded |
 | Release CUDA architecture regression | Rebuilt stale `sm_75` cache for supported `sm_86;sm_89`; Release sparse smoke, LP PDHG, and QP CLI pass | fixed and recorded |
+| Release native/CUDA CTest matrix | After rebuilding all targets, 28/28 C and CUDA tests pass under the Release configuration | passed |
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
 | Windows MIPLIB resource accounting | MSVC benchmark now reports process CPU seconds/CPU% from `GetProcessTimes` instead of silently emitting zero | passed |
