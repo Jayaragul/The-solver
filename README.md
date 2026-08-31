@@ -109,6 +109,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Windows MIPLIB resource accounting | MSVC benchmark now reports process CPU seconds/CPU% from `GetProcessTimes` instead of silently emitting zero | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Release MIPLIB warm-start refresh | `22433`, `23588`, and `blend2`: 3/3 exact certified objectives; warm-start wall time 1.8–2.7x lower than cold-start ablations | recorded |
+| Complete MIPLIB small Release sweep | 9/19 exact certified matches in a 60-second run; all 19 records retained with explicit limits and mismatches | recorded |
 | Netlib 5-second sweep | 27/31 LPs optimal with independent residual checks; 4 declared time limits, no false optimum | recorded |
 | Netlib / HiGHS comparison | 47/50 solutions agree with isolated HiGHS 1.11; 3 limits/stalls retained in the record | recorded |
 | Netlib AFIRO | default norm-scaled CUDA PDHG: objective error `5.54e-8`; primal verification at `1e-5` | passed |
