@@ -100,6 +100,7 @@ SIHPS_TEST(milp_parallel_strong_branching_preserves_certificate) {
     MilpSolverOptions parallel_options = serial_options;
     parallel_options.lp_options.parallel_mode = sihps::ParallelMode::PARALLEL;
     const auto parallel = sihps::solve_milp(binary_knapsack(), parallel_options);
+    const auto parallel_repeat = sihps::solve_milp(binary_knapsack(), parallel_options);
 
     SIHPS_ASSERT_TRUE(serial.status == MilpStatus::OPTIMAL);
     SIHPS_ASSERT_TRUE(parallel.status == MilpStatus::OPTIMAL);
@@ -107,6 +108,12 @@ SIHPS_TEST(milp_parallel_strong_branching_preserves_certificate) {
     SIHPS_ASSERT_NEAR(parallel.objective_value, serial.objective_value, 1e-8);
     SIHPS_ASSERT_NEAR(parallel.best_bound, serial.best_bound, 1e-8);
     SIHPS_ASSERT_TRUE(parallel.strong_branching_probes == serial.strong_branching_probes);
+    SIHPS_ASSERT_NEAR(parallel_repeat.objective_value, parallel.objective_value, 0.0);
+    SIHPS_ASSERT_NEAR(parallel_repeat.best_bound, parallel.best_bound, 0.0);
+    SIHPS_ASSERT_EQ(parallel_repeat.nodes_processed, parallel.nodes_processed);
+    SIHPS_ASSERT_EQ(parallel_repeat.strong_branching_probes, parallel.strong_branching_probes);
+    SIHPS_ASSERT_NEAR(parallel_repeat.x[0], parallel.x[0], 0.0);
+    SIHPS_ASSERT_NEAR(parallel_repeat.x[1], parallel.x[1], 0.0);
 }
 
 SIHPS_TEST(milp_handles_general_integer_variables) {
