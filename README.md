@@ -225,7 +225,9 @@ The focused cover-cut ablation is recorded in
 binary smoke instance with cuts enabled and disabled under the same limit.
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
-It records one proven optimum and retains nine QP limits; QPLIB remains an
+The original baseline records its initial one proven optimum; the optimized
+refresh ([MAROS_MESZAROS_QP_RELEASE_REFRESH](bench/results/MAROS_MESZAROS_QP_RELEASE_REFRESH.md))
+now certifies two and retains eight explicit QP limits. QPLIB remains an
 explicitly unclaimed future benchmark.
 
 The measured native CPU parallel check is [QP_THREADS](bench/results/QP_THREADS.md);
