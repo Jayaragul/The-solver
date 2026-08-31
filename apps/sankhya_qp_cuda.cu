@@ -68,7 +68,7 @@ void usage(const char* program)
 {
     std::fprintf(stderr,
         "usage: %s model.qps [--iterations N] [--time-limit S] "
-        "[--theta T] [--tolerance E]\n", program);
+        "[--theta T] [--tolerance E] [--check-every N]\n", program);
 }
 
 } // namespace
@@ -80,6 +80,9 @@ int main(int argc, char** argv)
     /* This driver always passes explicit diagonal steps.  tau and sigma are
        intentionally zero: they are fallback scalars for the non-preconditioned
        APIs and must not be reported as active QP parameters here. */
+    // QP checkpoints perform device-to-host residual/KKT diagnostics. Keep a
+    // responsive default for small models; large runs can use
+    // --check-every 1000 to amortize synchronization round trips.
     SankhyaCudaLPSettings settings{100000, 100, 0.0, 0.0, 1.0, 1e-6, 0.0};
     for (int i = 2; i < argc; ++i) {
         if (i + 1 >= argc) { usage(argv[0]); return 64; }
@@ -87,6 +90,7 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--time-limit")) settings.time_limit = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--theta"))      settings.theta = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--tolerance"))  settings.tolerance = std::atof(argv[++i]);
+        else if (!std::strcmp(argv[i], "--check-every")) settings.check_every = std::atoi(argv[++i]);
         else { usage(argv[0]); return 64; }
     }
 
