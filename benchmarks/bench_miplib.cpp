@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
     // own default, so a plain invocation of this benchmark reproduces the
     // existing baseline exactly.
     const bool warm_start = argc > 6 && std::string(argv[6]) == "on";
+    const std::string parallel_mode = argc > 7 ? argv[7] : "auto";
 
     std::cout << std::unitbuf;
 
@@ -149,6 +150,7 @@ int main(int argc, char** argv) {
     const ResourceSnapshot process_start = resources();
     std::cout << "time_limit_seconds=" << time_limit << " branching_rule=" << branching_rule
               << " warm_start=" << (warm_start ? "on" : "off")
+              << " parallel_mode=" << parallel_mode
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -177,6 +179,13 @@ int main(int argc, char** argv) {
             options.time_limit_seconds = time_limit;
             options.use_rounding_heuristic = true;
             options.warm_start_node_relaxations = warm_start;
+            if (parallel_mode == "serial") {
+                options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
+            } else if (parallel_mode == "parallel") {
+                options.lp_options.parallel_mode = sihps::ParallelMode::PARALLEL;
+            } else if (parallel_mode != "auto") {
+                throw std::invalid_argument("parallel mode must be auto, serial, or parallel");
+            }
             if (branching_rule == "most") {
                 options.branching_rule = sihps::MilpBranchingRule::MOST_FRACTIONAL;
             } else if (branching_rule == "pseudocost") {

@@ -51,6 +51,11 @@ workspace and uses serial inner LP kernels to avoid nested oversubscription;
 the pseudocost updates, incumbent gate, and node queue remain single-writer and
 therefore deterministic. This is deliberately narrower than parallel
 branch-and-bound: no live node or proof state is shared between workers.
+The benchmark runner accepts an optional final `auto|serial|parallel` argument
+after its existing warm-start flag, so wall-time and CPU-utilization tradeoffs
+can be reproduced. Small MIPLIB instances can show higher CPU utilization but
+no wall-time improvement under `parallel`; this is expected fork/oversubscription
+overhead, not evidence of a speedup, and is why `auto` remains the default.
 
 **Symmetry interaction (see §3):** on instances with interchangeable units/periods, multiple branching candidates may be structurally equivalent; v1 does not attempt symmetry-aware branching-candidate deduplication (a PROPOSED MODIFICATION noted in SOTA.md §1.1 but not validated) — this is deferred pending evidence from §3's simpler static symmetry-breaking that dynamic candidate deduplication is even needed.
 
