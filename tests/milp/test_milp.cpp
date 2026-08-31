@@ -90,6 +90,25 @@ SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
     SIHPS_ASSERT_NEAR(result.relative_gap, 0.0, 0.0);
 }
 
+SIHPS_TEST(milp_parallel_strong_branching_preserves_certificate) {
+    MilpSolverOptions serial_options;
+    serial_options.use_rounding_heuristic = false;
+    serial_options.enable_root_cover_cuts = false;
+    serial_options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
+    const auto serial = sihps::solve_milp(binary_knapsack(), serial_options);
+
+    MilpSolverOptions parallel_options = serial_options;
+    parallel_options.lp_options.parallel_mode = sihps::ParallelMode::PARALLEL;
+    const auto parallel = sihps::solve_milp(binary_knapsack(), parallel_options);
+
+    SIHPS_ASSERT_TRUE(serial.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(parallel.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(serial.has_incumbent && parallel.has_incumbent);
+    SIHPS_ASSERT_NEAR(parallel.objective_value, serial.objective_value, 1e-8);
+    SIHPS_ASSERT_NEAR(parallel.best_bound, serial.best_bound, 1e-8);
+    SIHPS_ASSERT_TRUE(parallel.strong_branching_probes == serial.strong_branching_probes);
+}
+
 SIHPS_TEST(milp_handles_general_integer_variables) {
     const auto result = sihps::solve_milp(integer_cover());
 

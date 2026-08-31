@@ -846,60 +846,70 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         if (options.branching_rule == MilpBranchingRule::PSEUDOCOST ||
             options.branching_rule == MilpBranchingRule::RELIABILITY) {
             if (options.branching_rule == MilpBranchingRule::RELIABILITY) {
-                std::uint32_t probes = 0;
+                std::vector<std::size_t> probe_candidates;
                 for (const FractionalCandidate& candidate : candidates) {
                     const auto j = static_cast<std::size_t>(candidate.variable);
                     if (reliable(j)) continue;
-                    if (probes >= options.strong_branching_candidates) break;
-                    if (timed_out()) {
-                        open.push(node);
-                        solution.status = MilpStatus::TIME_LIMIT;
-                        break;
-                    }
+                    if (probe_candidates.size() >= options.strong_branching_candidates) break;
+                    probe_candidates.push_back(static_cast<std::size_t>(&candidate - candidates.data()));
+                }
 
+                struct ProbeOutcome {
+                    bool down_ok = false;
+                    bool up_ok = false;
+                    double down_cost = 0.0;
+                    double up_cost = 0.0;
+                    std::uint32_t solves = 0;
+                };
+                std::vector<ProbeOutcome> outcomes(probe_candidates.size());
+                SIHPS_OMP(omp parallel for schedule(static) if(probe_candidates.size() > 1 &&
+                                                               options.lp_options.parallel_mode != ParallelMode::SERIAL &&
+                                                               (options.lp_options.parallel_mode == ParallelMode::PARALLEL ||
+                                                                workspace.A.nnz() >= kParallelNnzThreshold)))
+                for (std::int32_t probe_index = 0;
+                     probe_index < static_cast<std::int32_t>(probe_candidates.size());
+                     ++probe_index) {
+                    const FractionalCandidate& candidate = candidates[probe_candidates[probe_index]];
+                    const auto j = static_cast<std::size_t>(candidate.variable);
                     const double floor_probe = std::floor(relaxation.x[j]);
                     const double ceil_probe = std::ceil(relaxation.x[j]);
                     const double down_distance = candidate.fraction;
                     const double up_distance = 1.0 - candidate.fraction;
-
+                    // Each probe owns its bounds and LP workspace. This is the
+                    // only safe parallel region in B&B: pseudocost updates and
+                    // queue mutations remain serialized below.
                     auto probe_child = [&](int direction, double bound,
                                            double distance) -> std::pair<bool, double> {
                         std::vector<double> probe_lower = lower;
                         std::vector<double> probe_upper = upper;
-                        if (direction < 0) {
-                            probe_upper[j] = std::min(probe_upper[j], bound);
-                        } else {
-                            probe_lower[j] = std::max(probe_lower[j], bound);
-                        }
-                        if (!bounds_are_valid(probe_lower, probe_upper)) {
-                            return {true, kInfinityValue};
-                        }
-                        workspace.lower = probe_lower;
-                        workspace.upper = probe_upper;
-                        ++solution.lp_relaxations;
-                        ++solution.strong_branching_probes;
-                        const LpSolution probe = solve_lp(workspace, relaxation_options);
-                        workspace.lower = lower;
-                        workspace.upper = upper;
-                        if (probe.status == LpStatus::INFEASIBLE) {
-                            return {true, kInfinityValue};
-                        }
-                        if (probe.status != LpStatus::OPTIMAL || distance <= 0.0) {
-                            return {false, 0.0};
-                        }
-                        return {true, std::max(0.0, probe.objective_value - lower_bound) /
-                                            distance};
+                        if (direction < 0) probe_upper[j] = std::min(probe_upper[j], bound);
+                        else probe_lower[j] = std::max(probe_lower[j], bound);
+                        if (!bounds_are_valid(probe_lower, probe_upper)) return {true, kInfinityValue};
+                        LpProblem probe_workspace = workspace;
+                        probe_workspace.lower = std::move(probe_lower);
+                        probe_workspace.upper = std::move(probe_upper);
+                        LpSolverOptions probe_options = relaxation_options;
+                        probe_options.parallel_mode = ParallelMode::SERIAL;
+                        const LpSolution probe = solve_lp(probe_workspace, probe_options);
+                        ++outcomes[probe_index].solves;
+                        if (probe.status == LpStatus::INFEASIBLE) return {true, kInfinityValue};
+                        if (probe.status != LpStatus::OPTIMAL || distance <= 0.0) return {false, 0.0};
+                        return {true, std::max(0.0, probe.objective_value - lower_bound) / distance};
                     };
-
                     const auto down_probe = probe_child(-1, floor_probe, down_distance);
                     const auto up_probe = probe_child(+1, ceil_probe, up_distance);
-                    if (down_probe.first) {
-                        observe_pseudocost(candidate.variable, -1, down_probe.second);
-                    }
-                    if (up_probe.first) {
-                        observe_pseudocost(candidate.variable, +1, up_probe.second);
-                    }
-                    ++probes;
+                    outcomes[probe_index].down_ok = down_probe.first;
+                    outcomes[probe_index].down_cost = down_probe.second;
+                    outcomes[probe_index].up_ok = up_probe.first;
+                    outcomes[probe_index].up_cost = up_probe.second;
+                }
+                for (std::size_t probe_index = 0; probe_index < probe_candidates.size(); ++probe_index) {
+                    const FractionalCandidate& candidate = candidates[probe_candidates[probe_index]];
+                    const ProbeOutcome& outcome = outcomes[probe_index];
+                    solution.lp_relaxations += outcome.solves;
+                    solution.strong_branching_probes += outcome.solves;
+                    if (outcome.down_ok) observe_pseudocost(candidate.variable, -1, outcome.down_cost);
+                    if (outcome.up_ok) observe_pseudocost(candidate.variable, +1, outcome.up_cost);
                 }
                 if (solution.status == MilpStatus::TIME_LIMIT) break;
             }
