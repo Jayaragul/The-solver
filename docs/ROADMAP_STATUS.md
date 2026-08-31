@@ -134,7 +134,8 @@ code.** `src/milp/MilpProblem.{hpp,cpp}` and `src/milp/MilpSolver.{hpp,cpp}`
 exist: best-bound branch-and-bound, reliability branching (with
 strong-branching probes and pseudocost fallback), root-only mixed-row cover
 cuts (`docs/architecture/MILP.md` §2), a safe rounding heuristic, LP diving,
-and local improvement. 116/116 unit tests pass, including MILP-specific
+and local improvement. 134/134 C++/CUDA unit tests plus 28 native C smoke
+tests pass, including MILP-specific
 brute-forceable cases (tiny integer optima, infeasibility proofs, node-limit
 handling, cover-cut validity) and the warm-start differential tests above.
 
