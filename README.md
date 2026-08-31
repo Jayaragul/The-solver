@@ -129,7 +129,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Full CMake test suite | 33/33 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
-| Maros–Mészáros QP results | ten-instance native baseline; one proven optimal, limits retained | recorded |
+| Maros–Mészáros QP results | ten-instance native baseline; two proven optimal, limits retained | recorded |
 | Maros–Mészáros QP Release refresh | Optimized native CUDA-enabled build: HS35MOD and DPKLO1 certified; QPCBLEND retained with explicit dual-residual limit | recorded |
 | QPLIB results | no QPLIB dataset/run recorded yet | not claimed |
 
@@ -259,7 +259,7 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by the 33-test suite.
+   SpMV/PDHG/QP paths are implemented and covered by the 134-test native suite.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.
 
