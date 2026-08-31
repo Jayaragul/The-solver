@@ -1,0 +1,44 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "cuda-release",
+      "displayName": "Release with CUDA (sm_86;sm_89)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake-cuda-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CUDA_ARCHITECTURES": "86;89",
+        "SANKHYA_BUILD_TESTS": "ON",
+        "SANKHYA_ENABLE_CUDA": "ON"
+      }
+    },
+    {
+      "name": "cuda-debug",
+      "displayName": "Debug with CUDA (sm_86;sm_89)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake-cuda",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CUDA_ARCHITECTURES": "86;89",
+        "SANKHYA_BUILD_TESTS": "ON",
+        "SANKHYA_ENABLE_CUDA": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "cuda-release",
+      "configurePreset": "cuda-release"
+    },
+    {
+      "name": "cuda-debug",
+      "configurePreset": "cuda-debug"
+    }
+  ]
+}

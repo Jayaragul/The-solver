@@ -165,6 +165,17 @@ build\native\sankhya_pdhg.exe bench\smoke\unit_lp.mps --iterations 5000 --tolera
 
 The verified smoke result is `x[X]=1`, objective `1`, and zero primal violation.
 
+For the CMake CUDA build (including the correct RTX 3050 architectures), use
+the checked-in preset instead of reusing an unknown cache:
+
+```text
+cmake --preset cuda-release
+cmake --build --preset cuda-release
+```
+
+The preset emits `sm_86` and `sm_89` code and enables the complete native test
+matrix.
+
 The native CPU CLI loads MPS/QPS and exercises the public LP/QP/MILP dispatch:
 
 ```text
