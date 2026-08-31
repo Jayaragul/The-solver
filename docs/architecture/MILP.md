@@ -76,6 +76,12 @@ Rows with continuous variables or non-integral data are conservatively skipped;
 the gate only prunes when the modular proof is exact. `MilpSolution::
 integer_gcd_prunes` exposes how often this presolve proof fired.
 
+The same pass performs interval propagation on fully integral, finitely bounded
+equality rows: each variable's implied range is computed from the exact
+minimum and maximum contribution of the other variables, then rounded inward.
+Invalid ranges are pruned before the LP solve, and the number of bound changes
+is reported as `MilpSolution::integer_bound_tightenings`.
+
 **Optional cold-start ablation:** `MilpSolverOptions::warm_start_node_relaxations`
 (`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
 entirely, constructing `Simplex` directly and seating the parent's exported

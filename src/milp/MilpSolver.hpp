@@ -69,6 +69,7 @@ struct MilpSolverOptions {
     // the LP relaxation. Non-integral coefficients, bounds, or continuous
     // variables make the check conservatively skip the row.
     bool enable_integer_gcd_tightening = true;
+    bool enable_integer_equality_propagation = true;
 };
 
 struct MilpSolution {
@@ -97,6 +98,7 @@ struct MilpSolution {
     std::uint64_t warm_started_relaxations = 0;
     std::uint64_t warm_start_verification_fallbacks = 0;
     std::uint64_t integer_gcd_prunes = 0;
+    std::uint64_t integer_bound_tightenings = 0;
 };
 
 MilpSolution solve_milp(const MilpProblem& problem,

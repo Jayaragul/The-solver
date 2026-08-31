@@ -141,7 +141,7 @@ bool integer_equality_gcd_infeasible(const MilpProblem& problem,
                                static_cast<std::int64_t>(std::llabs(
                                    static_cast<std::int64_t>(integral_coefficient))));
         }
-        if (!applicable || divisor <= 1) continue;
+        if (!applicable || divisor == 0) continue;
         const long double nearest = std::round(residual);
         if (std::fabs(static_cast<double>(residual - nearest)) > kIntegerTolerance) {
             return true;
@@ -153,6 +153,66 @@ bool integer_equality_gcd_infeasible(const MilpProblem& problem,
         if (std::llabs(static_cast<std::int64_t>(nearest)) % divisor != 0) return true;
     }
     return false;
+}
+
+bool propagate_integer_equality_bounds(const MilpProblem& problem,
+                                       std::vector<double>& lower,
+                                       std::vector<double>& upper,
+                                       std::uint64_t& tightenings) {
+    const LpProblem& lp = problem.relaxation;
+    constexpr double kIntegerTolerance = 1e-9;
+    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+        if (lp.row_types[static_cast<std::size_t>(row)] != 'E') continue;
+        const auto begin = lp.A.row_ptr()[row];
+        const auto end = lp.A.row_ptr()[row + 1];
+        if (begin == end) continue;
+
+        double min_activity = 0.0;
+        double max_activity = 0.0;
+        bool applicable = true;
+        for (std::int32_t k = begin; k < end; ++k) {
+            const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
+            const double coefficient = lp.A.values()[k];
+            const double integral_coefficient = std::round(coefficient);
+            if (problem.variable_types[j] == VariableType::CONTINUOUS ||
+                std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
+                !std::isfinite(lower[j]) || !std::isfinite(upper[j])) {
+                applicable = false;
+                break;
+            }
+            const double first = integral_coefficient * lower[j];
+            const double second = integral_coefficient * upper[j];
+            min_activity += std::min(first, second);
+            max_activity += std::max(first, second);
+        }
+        if (!applicable) continue;
+
+        for (std::int32_t k = begin; k < end; ++k) {
+            const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
+            const double coefficient = std::round(lp.A.values()[k]);
+            if (coefficient == 0.0) continue;
+            const double first = coefficient * lower[j];
+            const double second = coefficient * upper[j];
+            const double other_min = min_activity - std::min(first, second);
+            const double other_max = max_activity - std::max(first, second);
+            double implied_lower = (lp.rhs[static_cast<std::size_t>(row)] - other_max) /
+                                   coefficient;
+            double implied_upper = (lp.rhs[static_cast<std::size_t>(row)] - other_min) /
+                                   coefficient;
+            if (implied_lower > implied_upper) std::swap(implied_lower, implied_upper);
+            implied_lower = std::ceil(implied_lower - kIntegerTolerance);
+            implied_upper = std::floor(implied_upper + kIntegerTolerance);
+            const double new_lower = std::max(lower[j], implied_lower);
+            const double new_upper = std::min(upper[j], implied_upper);
+            if (new_lower > new_upper) return false;
+            if (new_lower > lower[j] || new_upper < upper[j]) {
+                lower[j] = new_lower;
+                upper[j] = new_upper;
+                ++tightenings;
+            }
+        }
+    }
+    return bounds_are_valid(lower, upper);
 }
 
 bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
@@ -749,6 +809,13 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
         if (!bounds_are_valid(lower, upper)) {
             ++solution.nodes_pruned;
+            continue;
+        }
+        if (options.enable_integer_equality_propagation &&
+            !propagate_integer_equality_bounds(problem, lower, upper,
+                                               solution.integer_bound_tightenings)) {
+            ++solution.nodes_pruned;
+            ++solution.integer_gcd_prunes;
             continue;
         }
         if (options.enable_integer_gcd_tightening &&
