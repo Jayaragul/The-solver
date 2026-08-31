@@ -728,7 +728,11 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     s->y = y; y = NULL;
     s->rowact = activity; activity = NULL;
     s->ncol = n; s->nrow = r;
-    s->iterations = iteration;
+    /* A for-loop that exhausts the budget leaves `iteration` one past the
+       last executed step.  Expose the actual work count in the public result
+       (and benchmark JSON), while preserving the terminating iteration for
+       convergence/time-limit exits. */
+    s->iterations = iteration > maximum_iterations ? maximum_iterations : iteration;
     s->solve_seconds = sk_wall_seconds() - start;
     if (m->Q) {
         if (qdiag) for (iteration = 0; iteration < n; ++iteration) qx[iteration] = qdiag[iteration] * s->x[iteration];
