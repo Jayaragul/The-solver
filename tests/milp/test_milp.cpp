@@ -165,6 +165,27 @@ SIHPS_TEST(milp_integer_equality_propagation_tightens_bounds) {
     SIHPS_ASSERT_TRUE(result.integer_bound_tightenings >= 2);
 }
 
+SIHPS_TEST(milp_integer_inequality_rounding_tightens_lattice_rhs) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 2.0}});
+    lp.obj = {-1.0};
+    lp.rhs = {3.0};
+    lp.row_types = {'L'};
+    lp.lower = {0.0};
+    lp.upper = {10.0};
+    sihps::apply_default_row_bounds(lp);
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+    SIHPS_ASSERT_TRUE(result.integer_rhs_tightenings >= 1);
+    SIHPS_ASSERT_EQ(result.nodes_processed, 1);
+}
+
 SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     MilpSolverOptions options;
     options.node_limit = 1;

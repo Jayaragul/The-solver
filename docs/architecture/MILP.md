@@ -82,6 +82,12 @@ minimum and maximum contribution of the other variables, then rounded inward.
 Invalid ranges are pruned before the LP solve, and the number of bound changes
 is reported as `MilpSolution::integer_bound_tightenings`.
 
+For un-ranged integral `L`/`G` rows, the relaxation RHS is also rounded to the
+nearest reachable coefficient lattice. This strengthens fractional LP bounds
+without changing any integer-feasible point; each change is reported as
+`MilpSolution::integer_rhs_tightenings`. Ranged rows and mixed continuous rows
+are intentionally skipped until their transformations have equivalent proofs.
+
 **Optional cold-start ablation:** `MilpSolverOptions::warm_start_node_relaxations`
 (`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
 entirely, constructing `Simplex` directly and seating the parent's exported

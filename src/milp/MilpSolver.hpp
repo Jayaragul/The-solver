@@ -70,6 +70,7 @@ struct MilpSolverOptions {
     // variables make the check conservatively skip the row.
     bool enable_integer_gcd_tightening = true;
     bool enable_integer_equality_propagation = true;
+    bool enable_integer_inequality_rounding = true;
 };
 
 struct MilpSolution {
@@ -100,6 +101,7 @@ struct MilpSolution {
     std::uint64_t integer_gcd_prunes = 0;
     std::uint64_t integer_propagation_prunes = 0;
     std::uint64_t integer_bound_tightenings = 0;
+    std::uint64_t integer_rhs_tightenings = 0;
 };
 
 MilpSolution solve_milp(const MilpProblem& problem,

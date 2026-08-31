@@ -220,6 +220,56 @@ bool propagate_integer_equality_bounds(const MilpProblem& problem,
     return bounds_are_valid(lower, upper);
 }
 
+void round_integer_inequality_rhs(const MilpProblem& problem, LpProblem& workspace,
+                                  const std::vector<double>& lower,
+                                  std::uint64_t& tightenings) {
+    constexpr double kIntegerTolerance = 1e-9;
+    const LpProblem& lp = problem.relaxation;
+    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+        const auto ii = static_cast<std::size_t>(row);
+        const char type = lp.row_types[ii];
+        if (type != 'L' && type != 'G') continue;
+        // Ranged rows have two active sides; leave them unchanged until a
+        // range-aware lattice transformation is implemented.
+        if (std::isfinite(lp.slack_upper[ii]) && type == 'L') continue;
+        if (std::isfinite(lp.slack_lower[ii]) && type == 'G') continue;
+        const auto begin = lp.A.row_ptr()[row];
+        const auto end = lp.A.row_ptr()[row + 1];
+        if (begin == end || !std::isfinite(workspace.rhs[ii])) continue;
+        std::int64_t divisor = 0;
+        double lower_activity = 0.0;
+        bool applicable = true;
+        for (std::int32_t k = begin; k < end; ++k) {
+            const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
+            const double coefficient = lp.A.values()[k];
+            const double integral_coefficient = std::round(coefficient);
+            if (problem.variable_types[j] == VariableType::CONTINUOUS ||
+                std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
+                !std::isfinite(lower[j]) ||
+                std::fabs(lower[j] - std::round(lower[j])) > kIntegerTolerance) {
+                applicable = false;
+                break;
+            }
+            lower_activity += integral_coefficient * lower[j];
+            divisor = std::gcd(divisor, static_cast<std::int64_t>(std::llabs(
+                static_cast<std::int64_t>(integral_coefficient))));
+        }
+        if (!applicable || divisor <= 1) continue;
+        const double rhs = workspace.rhs[ii];
+        const double residual = rhs - lower_activity;
+        const double quotient = residual / static_cast<double>(divisor);
+        const double rounded_residual = type == 'L'
+                                            ? std::floor(quotient + kIntegerTolerance) * divisor
+                                            : std::ceil(quotient - kIntegerTolerance) * divisor;
+        const double rounded_rhs = lower_activity + rounded_residual;
+        if ((type == 'L' && rounded_rhs < rhs - kIntegerTolerance) ||
+            (type == 'G' && rounded_rhs > rhs + kIntegerTolerance)) {
+            workspace.rhs[ii] = rounded_rhs;
+            ++tightenings;
+        }
+    }
+}
+
 bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
                     const std::vector<double>& lower, const std::vector<double>& upper,
                     double feasibility_tolerance, ParallelMode parallel_mode) {
@@ -831,6 +881,10 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
         workspace.lower = lower;
         workspace.upper = upper;
+        if (options.enable_integer_inequality_rounding) {
+            round_integer_inequality_rhs(problem, workspace, lower,
+                                         solution.integer_rhs_tightenings);
+        }
 
         ++solution.lp_relaxations;
         LpSolution relaxation;
