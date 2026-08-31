@@ -228,6 +228,32 @@ SIHPS_TEST(milp_integer_gcd_gate_rejects_interval_feasible_parity_gap) {
     SIHPS_ASSERT_TRUE(result.integer_gcd_prunes >= 1);
 }
 
+SIHPS_TEST(milp_integer_presolve_matches_disabled_shifted_bound_case) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 2.0}});
+    lp.obj = {-1.0};
+    lp.rhs = {7.0};
+    lp.row_types = {'L'};
+    lp.lower = {2.0};
+    lp.upper = {10.0};
+    sihps::apply_default_row_bounds(lp);
+    const MilpProblem problem{lp, {VariableType::INTEGER}};
+
+    MilpSolverOptions enabled;
+    enabled.use_rounding_heuristic = false;
+    enabled.enable_root_cover_cuts = false;
+    const auto tightened = sihps::solve_milp(problem, enabled);
+
+    MilpSolverOptions disabled = enabled;
+    disabled.enable_integer_inequality_rounding = false;
+    const auto baseline = sihps::solve_milp(problem, disabled);
+
+    SIHPS_ASSERT_TRUE(tightened.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(baseline.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(tightened.objective_value, baseline.objective_value, 1e-8);
+    SIHPS_ASSERT_NEAR(tightened.objective_value, -3.0, 1e-8);
+}
+
 SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     MilpSolverOptions options;
     options.node_limit = 1;
