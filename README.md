@@ -185,6 +185,18 @@ It emits the incumbent, best bound, gap, integrality residual, node count, and
 LP-relaxation statistics. A `gap_limit`, node limit, or time limit is never
 presented as a proof of optimality.
 
+The certified `sk_qp` and `sk_mip` tools keep branching, pivot decisions, and
+KKT verification on the CPU by design. To exercise the NVIDIA GPU first-order
+path, use the separate CUDA CLI:
+
+```text
+build\native\sankhya_qp_cuda.exe bench\smoke\tiny_qp.qps --iterations 100000
+```
+
+Small QPs may still route through exact CPU shortcuts, so near-zero GPU usage
+in Task Manager is expected; GPU acceleration is reserved for the repeated
+sparse SpMV/PDHG work where measurements show it can amortize launch overhead.
+
 For a certified continuous-LP solve using the revised simplex path:
 
 ```text
