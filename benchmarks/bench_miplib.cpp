@@ -156,7 +156,9 @@ int main(int argc, char** argv) {
               << std::setw(12) << "abs_error" << std::setw(10) << "nodes" << std::setw(10)
               << "LPs" << std::setw(10) << "seconds" << std::setw(10) << "cpu_s"
               << std::setw(9) << "CPU%" << std::setw(12) << "RSS_MB" << std::setw(12)
-              << "GPU_MB" << std::setw(8) << "cuts" << std::setw(12) << "best_bound"
+              << "GPU_MB" << std::setw(8) << "cuts" << std::setw(8) << "gcd"
+              << std::setw(8) << "prop" << std::setw(8) << "rhs" << std::setw(12)
+              << "best_bound"
               << std::setw(10) << "gap" << std::setw(10) << "warm" << std::setw(10)
               << "warm_fb"
               << "  verdict\n";
@@ -250,6 +252,9 @@ int main(int argc, char** argv) {
                       << std::setw(10) << cpu_seconds << std::setw(9) << cpu_utilization
                       << std::setw(12) << rss_mb << std::setw(12) << gpu_before_mb << " -> "
                       << std::setw(8) << gpu_after_mb << std::setw(8) << result.cover_cuts
+                      << std::setw(8) << result.integer_gcd_prunes
+                      << std::setw(8) << result.integer_propagation_prunes
+                      << std::setw(8) << result.integer_rhs_tightenings
                       << std::setw(12) << std::setprecision(8) << result.best_bound << " "
                       << std::setw(10) << result.relative_gap << std::setw(10)
                       << result.warm_started_relaxations << std::setw(10)
