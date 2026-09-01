@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Build and test (native C core, CPU-only)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      # CUDA is never installed here. SANKHYA_ENABLE_CUDA and SIHPS_REQUIRE_CUDA
+      # already default to OFF in CMakeLists.txt, so on a runner with no nvcc
+      # the sihps C++/CUDA core (src/, tests/, benchmarks/) is skipped by the
+      # project's own configure-time CUDA detection rather than erroring. Only
+      # the native "sankhya" C core (c/src, c/tests, 23 regression tests) is
+      # built and run here — the README covers what the GPU path adds on top.
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSANKHYA_BUILD_TESTS=ON
+          -DSANKHYA_ENABLE_CUDA=OFF
+          -DSIHPS_REQUIRE_CUDA=OFF
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Run native C regression tests (ctest)
+        run: ctest --test-dir build -C Release --output-on-failure
