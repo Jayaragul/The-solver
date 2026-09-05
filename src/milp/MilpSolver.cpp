@@ -341,6 +341,12 @@ struct CoverCut {
     std::vector<std::int32_t> variables;
 };
 
+struct IntegerRoundingCut {
+    std::vector<std::pair<std::int32_t, double>> terms;
+    char row_type = 'L';
+    double rhs = 0.0;
+};
+
 bool binary_domain(const MilpProblem& problem, const LpProblem& lp, std::int32_t variable) {
     const auto j = static_cast<std::size_t>(variable);
     if (problem.variable_types[j] == VariableType::BINARY) return true;
@@ -497,6 +503,93 @@ void append_cover_cuts(LpProblem& workspace, const std::vector<CoverCut>& cuts) 
         workspace.row_types.push_back('L');
         workspace.slack_lower.push_back(0.0);
         workspace.slack_upper.push_back(kInfinityValue);
+    }
+}
+
+std::vector<IntegerRoundingCut> separate_integer_rounding_cuts(
+    const MilpProblem& problem, const std::vector<double>& x, double violation_tolerance,
+    std::uint32_t limit) {
+    std::vector<IntegerRoundingCut> cuts;
+    const LpProblem& lp = problem.relaxation;
+    constexpr double integer_tolerance = 1e-9;
+    for (std::int32_t row = 0; row < lp.n_rows() && cuts.size() < limit; ++row) {
+        const auto rr = static_cast<std::size_t>(row);
+        const char type = lp.row_types[rr];
+        if (type != 'L' && type != 'G') continue;
+        // Ranged rows have two coupled sides; defer until a range-aware
+        // transformation exists rather than infer an invalid cut.
+        if ((type == 'L' && std::isfinite(lp.slack_lower[rr]) &&
+             std::isfinite(lp.slack_upper[rr])) ||
+            (type == 'G' && std::isfinite(lp.slack_lower[rr]) &&
+             std::isfinite(lp.slack_upper[rr]))) continue;
+        const double rhs = lp.rhs[rr];
+        if (!std::isfinite(rhs)) continue;
+        const double rounded_rhs = type == 'L' ? std::floor(rhs + integer_tolerance)
+                                               : std::ceil(rhs - integer_tolerance);
+        if (std::fabs(rhs - rounded_rhs) <= integer_tolerance) continue;
+
+        IntegerRoundingCut cut;
+        cut.row_type = type;
+        cut.rhs = rounded_rhs;
+        double activity = 0.0;
+        bool valid = true;
+        for (std::int32_t k = lp.A.row_ptr()[row]; k < lp.A.row_ptr()[row + 1]; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            const std::int32_t variable = lp.A.col_idx()[kk];
+            const auto jj = static_cast<std::size_t>(variable);
+            const double coefficient = lp.A.values()[kk];
+            const double integral_coefficient = std::round(coefficient);
+            if (problem.variable_types[jj] == VariableType::CONTINUOUS ||
+                std::fabs(coefficient - integral_coefficient) > integer_tolerance) {
+                valid = false;
+                break;
+            }
+            if (integral_coefficient != 0.0) {
+                cut.terms.emplace_back(variable, integral_coefficient);
+                activity += integral_coefficient * x[jj];
+            }
+        }
+        if (!valid || cut.terms.empty()) continue;
+        const bool violated = type == 'L' ? activity > cut.rhs + violation_tolerance
+                                          : activity < cut.rhs - violation_tolerance;
+        if (violated) cuts.push_back(std::move(cut));
+    }
+    return cuts;
+}
+
+void append_integer_rounding_cuts(LpProblem& workspace,
+                                  const std::vector<IntegerRoundingCut>& cuts) {
+    const std::int32_t old_rows = workspace.n_rows();
+    std::vector<Triplet> entries;
+    entries.reserve(static_cast<std::size_t>(workspace.A.nnz()) +
+                    std::accumulate(cuts.begin(), cuts.end(), std::size_t{0},
+                                    [](std::size_t total, const IntegerRoundingCut& cut) {
+                                        return total + cut.terms.size();
+                                    }));
+    for (std::int32_t row = 0; row < old_rows; ++row) {
+        for (std::int32_t k = workspace.A.row_ptr()[row]; k < workspace.A.row_ptr()[row + 1]; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            entries.push_back({row, workspace.A.col_idx()[kk], workspace.A.values()[kk]});
+        }
+    }
+    for (std::size_t cut_index = 0; cut_index < cuts.size(); ++cut_index) {
+        const auto row = old_rows + static_cast<std::int32_t>(cut_index);
+        for (const auto& term : cuts[cut_index].terms) {
+            entries.push_back({row, term.first, term.second});
+        }
+    }
+    workspace.A = CSRMatrix::from_triplets(
+        old_rows + static_cast<std::int32_t>(cuts.size()), workspace.n_cols(), entries);
+    for (const IntegerRoundingCut& cut : cuts) {
+        workspace.rhs.push_back(cut.rhs);
+        workspace.row_types.push_back(cut.row_type);
+        if (cut.row_type == 'L') {
+            workspace.slack_lower.push_back(0.0);
+            workspace.slack_upper.push_back(kInfinityValue);
+        } else {
+            workspace.slack_lower.push_back(-kInfinityValue);
+            workspace.slack_upper.push_back(0.0);
+        }
     }
 }
 
@@ -945,15 +1038,30 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         const double lower_bound = relaxation.objective_value;
         record_pseudocost(*node, lower_bound, false);
 
-        if (node->depth == 0 && !root_cuts_separated && options.enable_root_cover_cuts) {
+        if (node->depth == 0 && !root_cuts_separated &&
+            (options.enable_root_cover_cuts || options.enable_root_integer_rounding_cuts)) {
             root_cuts_separated = true;
-            const auto cuts = separate_cover_cuts(
-                problem, relaxation.x, options.cut_violation_tolerance,
-                options.max_root_cover_cuts);
-            if (!cuts.empty()) {
-                append_cover_cuts(workspace, cuts);
-                solution.root_cover_cuts = cuts.size();
-                solution.cover_cuts = cuts.size();
+            const auto cover_cuts = options.enable_root_cover_cuts
+                                        ? separate_cover_cuts(problem, relaxation.x,
+                                                               options.cut_violation_tolerance,
+                                                               options.max_root_cover_cuts)
+                                        : std::vector<CoverCut>{};
+            const auto integer_cuts = options.enable_root_integer_rounding_cuts
+                                          ? separate_integer_rounding_cuts(
+                                                problem, relaxation.x,
+                                                options.cut_violation_tolerance,
+                                                options.max_root_integer_rounding_cuts)
+                                          : std::vector<IntegerRoundingCut>{};
+            if (!cover_cuts.empty() || !integer_cuts.empty()) {
+                if (!cover_cuts.empty()) {
+                    append_cover_cuts(workspace, cover_cuts);
+                    solution.root_cover_cuts = cover_cuts.size();
+                    solution.cover_cuts = cover_cuts.size();
+                }
+                if (!integer_cuts.empty()) {
+                    append_integer_rounding_cuts(workspace, integer_cuts);
+                    solution.root_integer_rounding_cuts = integer_cuts.size();
+                }
                 open.push(node);
                 continue;
             }

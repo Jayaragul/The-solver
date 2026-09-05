@@ -12,7 +12,7 @@ source was inspected locally; no solver library was copied or linked.
 | Core language | C11 ABI plus CUDA C kernels | C++17 plus CUDA C++ | SANKHYA is easier to embed from C; SIHPS is easier to extend with value types and RAII. |
 | LP | Bounded revised simplex, sparse LU, scaling, certificate repair, CUDA PDHG | Primal and dual revised simplex, Devex, sparse LU, warm starts, GPU PDLP/pricing | SIHPS has the broader LP control layer; both retain CPU control for pivot decisions. |
 | Presolve | Conservative interval and singleton reductions | Adds integer-bound rounding, scoped doubleton substitution, and GCD tightening | Integer-bound rounding, equality-row interval propagation, inequality RHS lattice rounding, and a conservative GCD infeasibility gate are now enabled in our MILP nodes. Doubleton substitution remains staged because reversible postsolve correctness is harder. |
-| MILP | Branch-and-bound, best-bound queue, pseudocost/reliability branching, cover cuts, rounding/diving/local improvement | Adds the same foundations plus optional GMI/RENS/GCD paths, exact binary meet-in-the-middle for one structural class, and a parallel tree | SIHPS has stronger breadth. Its exact binary path is valuable only when its structural gate proves applicable; it is not a general MILP replacement. |
+| MILP | Branch-and-bound, best-bound queue, pseudocost/reliability branching, cover cuts, rank-1 integer-row rounding cuts, rounding/diving/local improvement | Adds the same foundations plus optional GMI/RENS/GCD paths, exact binary meet-in-the-middle for one structural class, and a parallel tree | SIHPS has stronger breadth. Its exact binary path is valuable only when its structural gate proves applicable; it is not a general MILP replacement. |
 | QP / MIQP | Native CPU QP (closed-form, KKT, PDHG), CUDA sparse/diagonal QP, guarded small MIQP | LP/MILP-focused; its documented v1 status defers QP | SANKHYA is clearly broader for the requested QP scope. |
 | GPU | CUDA SpMV, LP/QP PDHG, projected KKT checks | CUDA SpMV, pricing, and device-resident PDLP | Comparable architecture; SANKHYA’s QP path and KKT admission checks are an advantage for this goal. |
 | Verification | Public model validation plus original-space primal/dual/KKT and integrality checks; non-certified results are downgraded | Extensive original-space checks and reproducibility metadata | Both follow the right invariant. SANKHYA’s C API exposes validation before solving. |
@@ -25,7 +25,8 @@ The comparison repository has a better *research architecture* for the next
 MILP phase: integer-aware reductions, exact structural subsolvers, and a
 parallel node layer. We are adopting the sound, local reductions first: every
 integer node bounds are rounded inward, integral equality rows propagate bounds,
-and modularly impossible rows are rejected before the LP relaxation. None needs
+modularly impossible rows are rejected before the LP relaxation, and violated
+rank-1 integer-row rounding cuts are added at the root. None needs
 a postsolve mapping; each option can be disabled for controlled ablations.
 
 We are not copying the comparison repository's full presolve or parallel tree

@@ -63,8 +63,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   sparse Q with at most twelve total variables/rows; its node relaxations are
   solved by exhaustive active-set KKT certification (with the closed form
   retained for separable bounds-only nodes). Larger MIQP remains future work.
-  Validated binary cover cuts are generated for suitable positive knapsack
-  rows; independent strong-branching probes can run in parallel, while full
+  Validated binary cover cuts and conservative rank-1 integer-row rounding cuts
+  are generated at the root; independent strong-branching probes can run in parallel, while full
   parallel node search and conflict analysis remain future work.
 - QP PDHG uses diagonal row/column norm preconditioning so sparse models with
   uneven constraint or Hessian scales do not inherit one globally throttled
@@ -292,7 +292,7 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by 134 C++/CUDA unit tests
+   SpMV/PDHG/QP paths are implemented and covered by 135 C++/CUDA unit tests
    plus 28 native C smoke tests.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.

@@ -98,7 +98,7 @@ rather than trying to reconcile the two. This trades some node-local presolve
 reductions for substantially cheaper certified re-solves; the bound invariant
 is unaffected either way.
 
-## 2. Cuts (implemented root mixed-row cover subset)
+## 2. Cuts (implemented root cover and integer-rounding families)
 
 The first cut implementation is deliberately narrow and auditable: root-only
 cover inequalities for rows with a finite upper activity bound and finite
@@ -117,12 +117,24 @@ extension. It requires a full row-bound transformation and independent
 validity tests before it can be enabled, so the current implementation does
 not claim that broader cut family.
 
+Rows whose nonzero coefficients and variables are all integral also receive a
+conservative rank-1 Chvatal-Gomory rounding cut when the fractional LP point
+violates it. For an all-integer row $a^T x \le b$, the added row is
+$a^T x \le \lfloor b\rfloor$; for $a^T x \ge b$ it is
+$a^T x \ge \lceil b\rceil$. This is valid because every integer-feasible
+activity is itself integral. Ranged rows, continuous columns, nonintegral
+coefficients, and integral right-hand sides are skipped. The separator is
+root-only, bounded by `max_root_integer_rounding_cuts`, and its count is
+reported as `root_integer_rounding_cuts` so benchmark ablations remain
+reproducible. It is deliberately narrower than general MIR: no mixed-row
+transformation or unverified postsolve mapping is hidden behind the option.
+
 ```cpp
 class CutManager {
 public:
-    // Current implementation: root-only nonnegative mixed-row cover
-    // separation; binary-domain terms enter each cover inequality.
-    // General MIR/flow-cover strengthening is intentionally not implied here.
+    // Current implementation: root-only cover and all-integer row-rounding
+    // separation. General MIR/flow-cover strengthening is intentionally not
+    // implied here.
     std::vector<Cut> separate(const LPResult& fractional_solution);
 };
 ```

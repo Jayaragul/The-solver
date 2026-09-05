@@ -52,6 +52,11 @@ struct MilpSolverOptions {
     std::uint32_t strong_branching_candidates = 4;
     bool enable_root_cover_cuts = true;
     std::uint32_t max_root_cover_cuts = 64;
+    // Rank-1 Chvatal-Gomory cuts from rows whose activity is integral for
+    // every integer-feasible point.  Restricted to all-integer rows and
+    // non-ranged sides so validity is unconditional and postsolve-free.
+    bool enable_root_integer_rounding_cuts = true;
+    std::uint32_t max_root_integer_rounding_cuts = 64;
     double cut_violation_tolerance = 1e-7;
 
     // Warm-started dual simplex for node relaxations (docs/architecture/
@@ -87,6 +92,7 @@ struct MilpSolution {
     std::uint64_t strong_branching_probes = 0;
     std::uint64_t root_cover_cuts = 0;
     std::uint64_t cover_cuts = 0;
+    std::uint64_t root_integer_rounding_cuts = 0;
     std::uint64_t incumbent_updates = 0;
     std::uint64_t diving_heuristic_lp_relaxations = 0;
     std::uint64_t local_improvement_lp_relaxations = 0;
