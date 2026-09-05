@@ -421,6 +421,42 @@ SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     SIHPS_ASSERT_TRUE(result.status != MilpStatus::OPTIMAL);
 }
 
+SIHPS_TEST(milp_large_rhs_does_not_mask_another_rows_violation) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(2, 2, {{0, 0, 1.0}, {1, 1, 1.0}});
+    lp.obj = {1.0, 0.0};
+    lp.rhs = {0.25, 1e8};
+    lp.row_types = {'G', 'E'};
+    lp.lower = {0.0, 1e8};
+    lp.upper = {1.0, 1e8};
+    sihps::apply_default_row_bounds(lp);
+    MilpSolverOptions options;
+    options.enable_root_cover_cuts = false;
+    options.enable_root_integer_rounding_cuts = false;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::CONTINUOUS}}, options);
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, 1.0, 1e-8);
+    SIHPS_ASSERT_NEAR(result.x[0], 1.0, 0.0);
+}
+
+SIHPS_TEST(milp_integrality_does_not_scale_with_variable_magnitude) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {{0, 0, 1.0}});
+    lp.obj = {1.0};
+    lp.rhs = {1e7 + 0.25};
+    lp.row_types = {'G'};
+    lp.lower = {1e7};
+    lp.upper = {1e7 + 2.0};
+    sihps::apply_default_row_bounds(lp);
+    MilpSolverOptions options;
+    options.enable_root_cover_cuts = false;
+    options.enable_root_integer_rounding_cuts = false;
+    const auto result = sihps::solve_milp(MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, 1e7 + 1.0, 1e-8);
+}
+
 SIHPS_TEST(milp_integer_presolve_skips_unsafe_integer_conversions) {
     for (double coefficient : {9007199254740992.0, 9223372036854775808.0,
                                -9223372036854775808.0, 1e300}) {

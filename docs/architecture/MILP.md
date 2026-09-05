@@ -62,6 +62,15 @@ overhead, not evidence of a speedup, and is why `auto` remains the default.
 
 ### 1.4 Node presolve
 
+Incumbents are admitted only after original-space row and bound violations
+are at most the absolute `feasibility_tolerance` (default `1e-6`) and each
+integer variable is within the absolute `integrality_tolerance` (default
+`1e-7`) of an integer. Neither gate scales with the RHS or variable magnitude.
+Non-finite row activities and objectives are rejected. LP relaxation and
+objective-gap tolerances remain separate settings. The numerical regressions
+and a fresh 10-second MIPLIB sweep are recorded in
+[MILP_INCUMBENT_TOLERANCES.md](../../bench/results/MILP_INCUMBENT_TOLERANCES.md).
+
 Each node materializes its accumulated bound deltas into a reusable LP
 workspace and re-applies the existing presolve implementation before the LP
 re-solve. The sparse matrix is copied once for the solve and then reused;

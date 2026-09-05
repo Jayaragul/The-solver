@@ -60,10 +60,6 @@ using NodeQueue = std::priority_queue<std::shared_ptr<const SearchNode>,
                                       std::vector<std::shared_ptr<const SearchNode>>,
                                       NodeCompare>;
 
-bool within(double value, double target, double tolerance) {
-    return std::fabs(value - target) <= tolerance * (1.0 + std::fabs(target));
-}
-
 double objective_value(const LpProblem& problem, const std::vector<double>& x) {
     double value = 0.0;
     for (std::int32_t j = 0; j < problem.n_cols(); ++j) {
@@ -281,25 +277,24 @@ bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
     for (std::int32_t j = 0; j < lp.n_cols(); ++j) {
         const auto jj = static_cast<std::size_t>(j);
         if (!std::isfinite(x[jj])) return false;
-        if (x[jj] < lower[jj] - feasibility_tolerance * (1.0 + std::fabs(lower[jj])) ||
-            x[jj] > upper[jj] + feasibility_tolerance * (1.0 + std::fabs(upper[jj]))) {
+        if (x[jj] < lower[jj] - feasibility_tolerance ||
+            x[jj] > upper[jj] + feasibility_tolerance) {
             return false;
         }
     }
 
     std::vector<double> ax(static_cast<std::size_t>(lp.n_rows()), 0.0);
     if (lp.n_rows() > 0) lp.A.multiply(x.data(), ax.data(), parallel_mode);
-    double rhs_norm = 0.0;
-    for (double value : lp.rhs) rhs_norm = std::max(rhs_norm, std::fabs(value));
     double row_violation = 0.0;
     for (std::int32_t i = 0; i < lp.n_rows(); ++i) {
         const auto ii = static_cast<std::size_t>(i);
+        if (!std::isfinite(ax[ii])) return false;
         const double lo = lp.rhs[ii] - lp.slack_upper[ii];
         const double hi = lp.rhs[ii] - lp.slack_lower[ii];
         if (std::isfinite(lo)) row_violation = std::max(row_violation, lo - ax[ii]);
         if (std::isfinite(hi)) row_violation = std::max(row_violation, ax[ii] - hi);
     }
-    return std::max(0.0, row_violation) / (1.0 + rhs_norm) <= feasibility_tolerance;
+    return std::max(0.0, row_violation) <= feasibility_tolerance;
 }
 
 bool integral_point(const MilpProblem& problem, const std::vector<double>& x,
@@ -308,7 +303,7 @@ bool integral_point(const MilpProblem& problem, const std::vector<double>& x,
         const auto jj = static_cast<std::size_t>(j);
         if (problem.variable_types[jj] == VariableType::CONTINUOUS) continue;
         if (!std::isfinite(x[jj]) ||
-            !within(x[jj], std::round(x[jj]), integrality_tolerance)) {
+            std::fabs(x[jj] - std::round(x[jj])) > integrality_tolerance) {
             return false;
         }
     }
@@ -776,6 +771,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             return false;
         }
         const double candidate_objective = objective_value(workspace, candidate);
+        if (!std::isfinite(candidate_objective)) return false;
         if (!std::isfinite(incumbent) ||
             candidate_objective < incumbent -
                                      options.objective_tolerance * (1.0 + std::fabs(incumbent))) {

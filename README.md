@@ -86,6 +86,9 @@ native C with CUDA kernels; no Python runtime is required by the solver.
   timeout or node limit cannot accidentally overstate the proven dual bound.
 - Every MILP incumbent is independently rechecked for row bounds, variable
   bounds, and integrality before it can affect pruning or the final gap.
+  The C++ engine now uses absolute incumbent feasibility and integrality
+  tolerances in original model units; see the
+  [tolerance regressions and 19-instance sweep](bench/results/MILP_INCUMBENT_TOLERANCES.md).
 - CMake targets for native C smoke tests and optional CUDA smoke tests.
 - Native `sankhya_qp_cuda` accepts continuous QPS models, using an implicit
   diagonal or resident sparse-Hessian product on the GPU, and independently
@@ -292,7 +295,7 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by 144 C++/CUDA unit tests
+   SpMV/PDHG/QP paths are implemented and covered by 146 C++/CUDA unit tests
    plus 28 native C smoke tests.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.

@@ -29,7 +29,9 @@ struct MilpSolverOptions {
 
     std::uint64_t node_limit = 0; // zero means unlimited
     double time_limit_seconds = 0.0; // zero means unlimited
-    double integrality_tolerance = 1e-7;
+    double integrality_tolerance = 1e-7; // absolute distance to nearest integer
+    // Absolute row/bound violation in original model units for incumbents.
+    // An unrelated large RHS must never hide a violation of a small row.
     double feasibility_tolerance = 1e-6;
     double objective_tolerance = 1e-8;
     // Round every MILP node's integer bounds inward before its LP
