@@ -69,10 +69,10 @@ node creation does not copy the matrix. This keeps node state proportional to
 the bound-change chain rather than to the full model.
 
 Before that LP call, an optional integer-aware GCD gate checks equality rows
-whose nonzero variables, coefficients, and active lower bounds are all
-integral. After shifting by the lower bounds, a right-hand side that is not
-divisible by the row coefficient GCD proves the node infeasible immediately.
-Rows with continuous variables or non-integral data are conservatively skipped;
+whose variables and coefficients are integral and whose slack is fixed at zero.
+A right-hand side that is not divisible by the row coefficient GCD proves
+infeasibility. This does not require finite lower bounds or subtract bound
+activities. Rows with continuous variables or non-integral coefficients are skipped;
 the gate only prunes when the modular proof is exact. `MilpSolution::
 integer_gcd_prunes` exposes how often this presolve proof fired.
 
@@ -82,7 +82,15 @@ minimum and maximum contribution of the other variables, then rounded inward.
 Invalid ranges are pruned before the LP solve, and the number of bound changes
 is reported as `MilpSolution::integer_bound_tightenings`.
 
-For un-ranged integral `L`/`G` rows, the relaxation RHS is also rounded to the
+All three integer reductions require exactly integral coefficients, not a
+near-integer tolerance. GCD casts are guarded by a `2^53-1` magnitude limit.
+Equality propagation additionally bounds the total absolute activity including
+the RHS to that range so products and sums are exact before division.
+Rows outside these guards fall through to the LP solver. Ranged `E` rows
+are not treated as exact equalities. See the
+[presolve regression record](../../bench/results/INTEGER_PRESOLVE_VALIDITY.md).
+
+For un-ranged integral `L`/`G` rows with a zero finite slack endpoint, the relaxation RHS is also rounded to the
 nearest reachable coefficient lattice. This strengthens fractional LP bounds
 without changing any integer-feasible point; each change is reported as
 `MilpSolution::integer_rhs_tightenings`. Ranged rows and mixed continuous rows

@@ -109,48 +109,41 @@ void round_integer_bounds(const MilpProblem& problem, std::vector<double>& lower
     }
 }
 
-bool integer_equality_gcd_infeasible(const MilpProblem& problem,
-                                     const std::vector<double>& lower) {
+// Stay inside binary64's consecutive-integer range. This also excludes
+// INT64_MIN and the rounded double representation of INT64_MAX before casts.
+constexpr double kExactIntegerLimit = 9007199254740991.0;
+
+bool exact_integer(double value) {
+    return std::isfinite(value) && std::fabs(value) <= kExactIntegerLimit &&
+           value == std::round(value);
+}
+
+bool integer_equality_gcd_infeasible(const MilpProblem& problem) {
     const LpProblem& lp = problem.relaxation;
-    constexpr double kIntegerTolerance = 1e-9;
     for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
-        if (lp.row_types[static_cast<std::size_t>(row)] != 'E') continue;
+        const auto rr = static_cast<std::size_t>(row);
+        if (lp.row_types[rr] != 'E' || lp.slack_lower[rr] != 0.0 ||
+            lp.slack_upper[rr] != 0.0) continue;
+        const double rhs = lp.rhs[rr];
+        if (!std::isfinite(rhs) || std::fabs(rhs) > kExactIntegerLimit) continue;
         const auto begin = lp.A.row_ptr()[row];
         const auto end = lp.A.row_ptr()[row + 1];
         std::int64_t divisor = 0;
-        long double residual = lp.rhs[static_cast<std::size_t>(row)];
         bool applicable = true;
         for (std::int32_t k = begin; k < end; ++k) {
             const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
-            if (problem.variable_types[j] == VariableType::CONTINUOUS ||
-                !std::isfinite(lower[j])) {
-                applicable = false;
-                break;
-            }
             const double coefficient = lp.A.values()[k];
-            const double integral_coefficient = std::round(coefficient);
-            if (std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
-                std::fabs(lower[j] - std::round(lower[j])) > kIntegerTolerance ||
-                std::fabs(integral_coefficient) >
-                    static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+            if (problem.variable_types[j] == VariableType::CONTINUOUS ||
+                !exact_integer(coefficient)) {
                 applicable = false;
                 break;
             }
-            residual -= static_cast<long double>(integral_coefficient) * lower[j];
-            divisor = std::gcd(divisor,
-                               static_cast<std::int64_t>(std::llabs(
-                                   static_cast<std::int64_t>(integral_coefficient))));
+            divisor = std::gcd(divisor, static_cast<std::int64_t>(std::fabs(coefficient)));
         }
         if (!applicable || divisor == 0) continue;
-        const long double nearest = std::round(residual);
-        if (std::fabs(static_cast<double>(residual - nearest)) > kIntegerTolerance) {
-            return true;
-        }
-        if (std::fabs(static_cast<double>(nearest)) >
-            static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
-            continue;
-        }
-        if (std::llabs(static_cast<std::int64_t>(nearest)) % divisor != 0) return true;
+        // gcd(a) divides a*x for every integer x, independent of node bounds.
+        // Avoid subtracting a*lower: it adds cancellation and overflow risk.
+        if (!exact_integer(rhs) || static_cast<std::int64_t>(rhs) % divisor != 0) return true;
     }
     return false;
 }
@@ -165,26 +158,37 @@ bool propagate_integer_equality_bounds(const MilpProblem& problem,
     for (std::int32_t pass = 0; pass < max_passes; ++pass) {
         const std::uint64_t pass_start = tightenings;
         for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
-        if (lp.row_types[static_cast<std::size_t>(row)] != 'E') continue;
+        const auto rr = static_cast<std::size_t>(row);
+        if (lp.row_types[rr] != 'E' || lp.slack_lower[rr] != 0.0 ||
+            lp.slack_upper[rr] != 0.0 || !exact_integer(lp.rhs[rr])) continue;
         const auto begin = lp.A.row_ptr()[row];
         const auto end = lp.A.row_ptr()[row + 1];
         if (begin == end) continue;
 
         double min_activity = 0.0;
         double max_activity = 0.0;
+        double activity_budget = std::fabs(lp.rhs[rr]);
         bool applicable = true;
         for (std::int32_t k = begin; k < end; ++k) {
             const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
             const double coefficient = lp.A.values()[k];
-            const double integral_coefficient = std::round(coefficient);
             if (problem.variable_types[j] == VariableType::CONTINUOUS ||
-                std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
-                !std::isfinite(lower[j]) || !std::isfinite(upper[j])) {
+                !exact_integer(coefficient) || !exact_integer(lower[j]) ||
+                !exact_integer(upper[j])) {
                 applicable = false;
                 break;
             }
-            const double first = integral_coefficient * lower[j];
-            const double second = integral_coefficient * upper[j];
+            const double first = coefficient * lower[j];
+            const double second = coefficient * upper[j];
+            const double magnitude = std::max(std::fabs(first), std::fabs(second));
+            // All products, sums and rhs-minus-other-activity must be exact
+            // integers before division. Skip the row if that cannot be assured.
+            if (!exact_integer(first) || !exact_integer(second) ||
+                magnitude > kExactIntegerLimit - activity_budget) {
+                applicable = false;
+                break;
+            }
+            activity_budget += magnitude;
             min_activity += std::min(first, second);
             max_activity += std::max(first, second);
         }
@@ -221,7 +225,6 @@ bool propagate_integer_equality_bounds(const MilpProblem& problem,
 }
 
 void round_integer_inequality_rhs(const MilpProblem& problem, LpProblem& workspace,
-                                  const std::vector<double>& lower,
                                   std::uint64_t& tightenings) {
     constexpr double kIntegerTolerance = 1e-9;
     const LpProblem& lp = problem.relaxation;
@@ -233,35 +236,34 @@ void round_integer_inequality_rhs(const MilpProblem& problem, LpProblem& workspa
         // range-aware lattice transformation is implemented.
         if (std::isfinite(lp.slack_upper[ii]) && type == 'L') continue;
         if (std::isfinite(lp.slack_lower[ii]) && type == 'G') continue;
+        // Only zero-endpoint one-sided slacks here. Root cuts handle the
+        // general effective side; rounding the stored RHS alone would be invalid.
+        if ((type == 'L' && lp.slack_lower[ii] != 0.0) ||
+            (type == 'G' && lp.slack_upper[ii] != 0.0)) continue;
         const auto begin = lp.A.row_ptr()[row];
         const auto end = lp.A.row_ptr()[row + 1];
-        if (begin == end || !std::isfinite(workspace.rhs[ii])) continue;
+        if (begin == end || !std::isfinite(workspace.rhs[ii]) ||
+            std::fabs(workspace.rhs[ii]) > kExactIntegerLimit) continue;
         std::int64_t divisor = 0;
-        double lower_activity = 0.0;
         bool applicable = true;
         for (std::int32_t k = begin; k < end; ++k) {
             const auto j = static_cast<std::size_t>(lp.A.col_idx()[k]);
             const double coefficient = lp.A.values()[k];
-            const double integral_coefficient = std::round(coefficient);
             if (problem.variable_types[j] == VariableType::CONTINUOUS ||
-                std::fabs(coefficient - integral_coefficient) > kIntegerTolerance ||
-                !std::isfinite(lower[j]) ||
-                std::fabs(lower[j] - std::round(lower[j])) > kIntegerTolerance) {
+                !exact_integer(coefficient)) {
                 applicable = false;
                 break;
             }
-            lower_activity += integral_coefficient * lower[j];
-            divisor = std::gcd(divisor, static_cast<std::int64_t>(std::llabs(
-                static_cast<std::int64_t>(integral_coefficient))));
+            divisor = std::gcd(divisor, static_cast<std::int64_t>(std::fabs(coefficient)));
         }
         if (!applicable || divisor <= 1) continue;
         const double rhs = workspace.rhs[ii];
-        const double residual = rhs - lower_activity;
-        const double quotient = residual / static_cast<double>(divisor);
+        const double quotient = rhs / static_cast<double>(divisor);
         const double rounded_residual = type == 'L'
                                             ? std::floor(quotient + kIntegerTolerance) * divisor
                                             : std::ceil(quotient - kIntegerTolerance) * divisor;
-        const double rounded_rhs = lower_activity + rounded_residual;
+        const double rounded_rhs = rounded_residual;
+        if (!exact_integer(rounded_rhs)) continue;
         if ((type == 'L' && rounded_rhs < rhs - kIntegerTolerance) ||
             (type == 'G' && rounded_rhs > rhs + kIntegerTolerance)) {
             workspace.rhs[ii] = rounded_rhs;
@@ -972,7 +974,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             continue;
         }
         if (options.enable_integer_gcd_tightening &&
-            integer_equality_gcd_infeasible(problem, lower)) {
+            integer_equality_gcd_infeasible(problem)) {
             ++solution.nodes_pruned;
             ++solution.integer_gcd_prunes;
             continue;
@@ -980,7 +982,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         workspace.lower = lower;
         workspace.upper = upper;
         if (options.enable_integer_inequality_rounding) {
-            round_integer_inequality_rhs(problem, workspace, lower,
+            round_integer_inequality_rhs(problem, workspace,
                                          solution.integer_rhs_tightenings);
         }
 

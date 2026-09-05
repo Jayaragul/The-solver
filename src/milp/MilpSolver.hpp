@@ -71,8 +71,9 @@ struct MilpSolverOptions {
     // valuable than basis reuse on a particular model family.
     bool warm_start_node_relaxations = true;
     // Detect modularly impossible all-integer equality rows before invoking
-    // the LP relaxation. Non-integral coefficients, bounds, or continuous
-    // variables make the check conservatively skip the row.
+    // the LP relaxation. Requires exactly integral coefficients within the
+    // safe integer range and zero equality slack. Bounds may be infinite.
+    // Ranges and continuous variables make the check skip the row.
     bool enable_integer_gcd_tightening = true;
     bool enable_integer_equality_propagation = true;
     bool enable_integer_inequality_rounding = true;

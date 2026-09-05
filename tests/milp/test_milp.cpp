@@ -361,6 +361,55 @@ SIHPS_TEST(milp_integer_presolve_matches_disabled_shifted_bound_case) {
     SIHPS_ASSERT_NEAR(tightened.objective_value, -3.0, 1e-8);
 }
 
+SIHPS_TEST(milp_integer_presolve_preserves_small_coefficient_activity) {
+    for (int mode = 0; mode < 3; ++mode) {
+        LpProblem lp;
+        const bool inequality = mode == 2;
+        lp.A = CSRMatrix::from_triplets(
+            1, 2, {{0, 0, inequality ? 2.0 : 1.0}, {0, 1, -5e-10}});
+        lp.obj = {-1.0, 0.0};
+        lp.rhs = {inequality ? 1.5 : 0.5};
+        lp.row_types = {inequality ? 'L' : 'E'};
+        lp.lower = {0.0, 1e9};
+        lp.upper = {2.0, 1e9};
+        sihps::apply_default_row_bounds(lp);
+        MilpSolverOptions options;
+        options.enable_integer_equality_propagation = mode == 0;
+        options.enable_integer_gcd_tightening = mode == 1;
+        options.enable_integer_inequality_rounding = mode == 2;
+        options.enable_root_cover_cuts = false;
+        options.enable_root_integer_rounding_cuts = false;
+        const auto result = sihps::solve_milp(
+            MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}}, options);
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+        SIHPS_ASSERT_EQ(result.integer_gcd_prunes, 0);
+        SIHPS_ASSERT_EQ(result.integer_propagation_prunes, 0);
+        SIHPS_ASSERT_EQ(result.integer_rhs_tightenings, 0);
+    }
+}
+
+SIHPS_TEST(milp_integer_presolve_respects_ranged_equality) {
+    for (int mode = 0; mode < 2; ++mode) {
+        LpProblem lp;
+        // 2*x+s=1, -1<=s<=1 allows x=1. It is not 2*x=1.
+        lp.A = CSRMatrix::from_triplets(1, 1, {{0, 0, 2.0}});
+        lp.obj = {-1.0};
+        lp.rhs = {1.0};
+        lp.row_types = {'E'};
+        lp.lower = {0.0};
+        lp.upper = {2.0};
+        lp.slack_lower = {-1.0};
+        lp.slack_upper = {1.0};
+        MilpSolverOptions options;
+        options.enable_integer_equality_propagation = mode == 0;
+        options.enable_integer_gcd_tightening = mode == 1;
+        const auto result = sihps::solve_milp(MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+    }
+}
+
 SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     MilpSolverOptions options;
     options.node_limit = 1;
@@ -370,6 +419,108 @@ SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::NODE_LIMIT);
     SIHPS_ASSERT_TRUE(result.status != MilpStatus::OPTIMAL);
+}
+
+SIHPS_TEST(milp_integer_presolve_skips_unsafe_integer_conversions) {
+    for (double coefficient : {9007199254740992.0, 9223372036854775808.0,
+                               -9223372036854775808.0, 1e300}) {
+        for (char type : {'E', 'L', 'G'}) {
+            LpProblem lp;
+            lp.A = CSRMatrix::from_triplets(1, 1, {{0, 0, coefficient}});
+            lp.obj = {0.0};
+            lp.rhs = {0.0};
+            lp.row_types = {type};
+            lp.lower = {0.0};
+            lp.upper = {0.0};
+            sihps::apply_default_row_bounds(lp);
+            const auto result = sihps::solve_milp(
+                MilpProblem{std::move(lp), {VariableType::INTEGER}});
+            SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+            SIHPS_ASSERT_EQ(result.integer_gcd_prunes, 0);
+            SIHPS_ASSERT_EQ(result.integer_bound_tightenings, 0);
+            SIHPS_ASSERT_EQ(result.integer_rhs_tightenings, 0);
+        }
+    }
+}
+
+SIHPS_TEST(milp_integer_gcd_proves_infeasibility_with_free_integer_bounds) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 2, {{0, 0, 2.0}, {0, 1, 4.0}});
+    lp.obj = {0.0, 0.0};
+    lp.rhs = {1.0};
+    lp.row_types = {'E'};
+    lp.lower = {-sihps::kInfinity, -sihps::kInfinity};
+    lp.upper = {sihps::kInfinity, sihps::kInfinity};
+    sihps::apply_default_row_bounds(lp);
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}});
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::INFEASIBLE);
+    SIHPS_ASSERT_EQ(result.integer_gcd_prunes, 1);
+    SIHPS_ASSERT_EQ(result.lp_relaxations, 0);
+}
+
+SIHPS_TEST(milp_integer_presolve_skips_nonzero_slack_endpoint) {
+    for (double sign : {1.0, -1.0}) {
+        LpProblem lp;
+        lp.A = CSRMatrix::from_triplets(1, 1, {{0, 0, sign * 2.0}});
+        lp.obj = {-1.0};
+        lp.rhs = {sign * 1.5};
+        lp.row_types = {sign > 0.0 ? 'L' : 'G'};
+        lp.lower = {0.0};
+        lp.upper = {2.0};
+        sihps::apply_default_row_bounds(lp);
+        if (sign > 0.0) lp.slack_lower[0] = -1.0;
+        else lp.slack_upper[0] = 1.0;
+        MilpSolverOptions options;
+        options.enable_root_integer_rounding_cuts = false;
+        const auto result = sihps::solve_milp(
+            MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+        SIHPS_ASSERT_EQ(result.integer_rhs_tightenings, 0);
+    }
+}
+
+SIHPS_TEST(milp_integer_presolve_matches_enumeration_and_disabled_reductions) {
+    for (int trial = 0; trial < 36; ++trial) {
+        const double a = 1 + trial % 3;
+        const double b = -1 - (trial / 3) % 3;
+        const double rhs = trial % 7 - 2 + (trial % 2 ? 0.5 : 0.0);
+        LpProblem lp;
+        lp.A = CSRMatrix::from_triplets(1, 2, {{0, 0, a}, {0, 1, b}});
+        lp.obj = {-2.0, 1.0};
+        lp.rhs = {rhs};
+        lp.row_types = {trial % 3 == 0 ? 'E' : (trial % 3 == 1 ? 'L' : 'G')};
+        lp.lower = {-2.0, -2.0};
+        lp.upper = {3.0, 3.0};
+        sihps::apply_default_row_bounds(lp);
+        if (trial % 6 == 0) lp.slack_upper[0] = 2.0;
+        double optimum = sihps::kInfinity;
+        for (int x = -2; x <= 3; ++x) {
+            for (int y = -2; y <= 3; ++y) {
+                const double slack = rhs - a*x - b*y;
+                if (slack >= lp.slack_lower[0] && slack <= lp.slack_upper[0]) {
+                    optimum = std::min(optimum, -2.0*x + y);
+                }
+            }
+        }
+        MilpProblem problem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}};
+        for (bool enable : {false, true}) {
+            MilpSolverOptions options;
+            options.enable_integer_equality_propagation = enable;
+            options.enable_integer_gcd_tightening = enable;
+            options.enable_integer_inequality_rounding = enable;
+            options.enable_root_cover_cuts = false;
+            options.enable_root_integer_rounding_cuts = false;
+            const auto result = sihps::solve_milp(problem, options);
+            if (std::isfinite(optimum)) {
+                SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+                SIHPS_ASSERT_NEAR(result.objective_value, optimum, 1e-8);
+            } else {
+                SIHPS_ASSERT_TRUE(result.status == MilpStatus::INFEASIBLE);
+            }
+        }
+    }
 }
 
 SIHPS_TEST(milp_root_cover_cut_is_valid_and_improves_the_root_relaxation) {
