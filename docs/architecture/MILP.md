@@ -123,11 +123,18 @@ violates it. For an all-integer row $a^T x \le b$, the added row is
 $a^T x \le \lfloor b\rfloor$; for $a^T x \ge b$ it is
 $a^T x \ge \lceil b\rceil$. This is valid because every integer-feasible
 activity is itself integral. Ranged rows, continuous columns, nonintegral
-coefficients, and integral right-hand sides are skipped. The separator is
+coefficients, and integral right-hand sides are skipped. Coefficients must
+equal their rounded values exactly; a coefficient tolerance is invalid here
+because a tiny coefficient error times a large variable can remove feasible
+integer points. The side bound is computed from `rhs - slack_lower` for an
+upper side and `rhs - slack_upper` for a lower side. The separator is
 root-only, bounded by `max_root_integer_rounding_cuts`, and its count is
 reported as `root_integer_rounding_cuts` so benchmark ablations remain
 reproducible. It is deliberately narrower than general MIR: no mixed-row
 transformation or unverified postsolve mapping is hidden behind the option.
+
+The numerical regression record is in
+[`INTEGER_ROUNDING_VALIDITY.md`](../../bench/results/INTEGER_ROUNDING_VALIDITY.md).
 
 ```cpp
 class CutManager {

@@ -522,7 +522,10 @@ std::vector<IntegerRoundingCut> separate_integer_rounding_cuts(
              std::isfinite(lp.slack_upper[rr])) ||
             (type == 'G' && std::isfinite(lp.slack_lower[rr]) &&
              std::isfinite(lp.slack_upper[rr]))) continue;
-        const double rhs = lp.rhs[rr];
+        // The slack bounds define the actual side of Ax+s=rhs. A custom
+        // one-sided slack need not have its finite endpoint at zero.
+        const double rhs = lp.rhs[rr] -
+                           (type == 'L' ? lp.slack_lower[rr] : lp.slack_upper[rr]);
         if (!std::isfinite(rhs)) continue;
         const double rounded_rhs = type == 'L' ? std::floor(rhs + integer_tolerance)
                                                : std::ceil(rhs - integer_tolerance);
@@ -539,8 +542,10 @@ std::vector<IntegerRoundingCut> separate_integer_rounding_cuts(
             const auto jj = static_cast<std::size_t>(variable);
             const double coefficient = lp.A.values()[kk];
             const double integral_coefficient = std::round(coefficient);
-            if (problem.variable_types[jj] == VariableType::CONTINUOUS ||
-                std::fabs(coefficient - integral_coefficient) > integer_tolerance) {
+            // Exact integrality is required for this proof. A tiny rounding
+            // error can have arbitrarily large activity with large bounds.
+            if (!std::isfinite(coefficient) || coefficient != integral_coefficient ||
+                problem.variable_types[jj] == VariableType::CONTINUOUS) {
                 valid = false;
                 break;
             }

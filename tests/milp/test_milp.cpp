@@ -6,6 +6,7 @@
 #include "milp/MilpSolver.hpp"
 #include "sparse/Triplet.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -228,6 +229,89 @@ SIHPS_TEST(milp_root_integer_rounding_cut_closes_fractional_all_integer_row) {
     SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
     SIHPS_ASSERT_EQ(result.root_integer_rounding_cuts, 1);
     SIHPS_ASSERT_TRUE(result.nodes_processed >= 1);
+}
+
+SIHPS_TEST(milp_rounding_cut_preserves_small_coefficient_large_bound) {
+    for (double direction : {1.0, -1.0}) {
+        LpProblem lp;
+        // y=1e9: x - 5e-10*y <= .75 permits x=1. Rounding the
+        // small coefficient to zero would add x<=0 and remove the optimum.
+        lp.A = CSRMatrix::from_triplets(
+            1, 2, {{0, 0, direction}, {0, 1, -5e-10 * direction}});
+        lp.obj = {-1.0, 0.0};
+        lp.rhs = {0.75 * direction};
+        lp.row_types = {direction > 0.0 ? 'L' : 'G'};
+        lp.lower = {0.0, 1e9};
+        lp.upper = {2.0, 1e9};
+        sihps::apply_default_row_bounds(lp);
+        MilpProblem problem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}};
+        MilpSolverOptions options;
+        options.enable_root_cover_cuts = false;
+        const auto result = sihps::solve_milp(problem, options);
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+        SIHPS_ASSERT_EQ(result.root_integer_rounding_cuts, 0);
+    }
+}
+
+SIHPS_TEST(milp_rounding_cut_uses_effective_slack_side) {
+    for (double direction : {1.0, -1.0}) {
+        LpProblem lp;
+        lp.A = CSRMatrix::from_triplets(1, 2, {{0, 0, direction}, {0, 1, direction}});
+        lp.obj = {-1.0, -1.0};
+        lp.rhs = {0.75 * direction};
+        lp.row_types = {direction > 0.0 ? 'L' : 'G'};
+        lp.lower = {0.0, 0.0};
+        lp.upper = {2.0, 2.0};
+        sihps::apply_default_row_bounds(lp);
+        if (direction > 0.0) lp.slack_lower[0] = -0.5;
+        else lp.slack_upper[0] = 0.5;
+        MilpSolverOptions options;
+        options.enable_root_cover_cuts = false;
+        options.enable_integer_inequality_rounding = false;
+        const auto result = sihps::solve_milp(
+            MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}}, options);
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+        SIHPS_ASSERT_EQ(result.root_integer_rounding_cuts, 1);
+    }
+}
+
+SIHPS_TEST(milp_rounding_cut_matches_exhaustive_integer_search) {
+    std::uint64_t total_cuts = 0;
+    for (int trial = 0; trial < 24; ++trial) {
+        const double a = 1.0 + trial % 3;
+        const double b = -1.0 - (trial / 3) % 3;
+        const double rhs = trial % 7 - 2.25;
+        const bool greater = trial % 2 != 0;
+        LpProblem lp;
+        lp.A = CSRMatrix::from_triplets(1, 2, {{0, 0, a}, {0, 1, b}});
+        lp.obj = {-2.0, 1.0};
+        lp.rhs = {rhs};
+        lp.row_types = {greater ? 'G' : 'L'};
+        lp.lower = {-2.0, -2.0};
+        lp.upper = {3.0, 3.0};
+        sihps::apply_default_row_bounds(lp);
+        double optimum = sihps::kInfinity;
+        for (int x = -2; x <= 3; ++x) {
+            for (int y = -2; y <= 3; ++y) {
+                const double activity = a * x + b * y;
+                if (greater ? activity >= rhs : activity <= rhs) {
+                    optimum = std::min(optimum, -2.0 * x + y);
+                }
+            }
+        }
+        MilpSolverOptions options;
+        options.enable_root_cover_cuts = false;
+        options.enable_integer_inequality_rounding = false;
+        const auto result = sihps::solve_milp(
+            MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}}, options);
+        SIHPS_ASSERT_TRUE(std::isfinite(optimum));
+        SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+        SIHPS_ASSERT_NEAR(result.objective_value, optimum, 1e-8);
+        total_cuts += result.root_integer_rounding_cuts;
+    }
+    SIHPS_ASSERT_TRUE(total_cuts > 0);
 }
 
 SIHPS_TEST(milp_integer_gcd_gate_rejects_interval_feasible_parity_gap) {
