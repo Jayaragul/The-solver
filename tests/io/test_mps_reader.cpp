@@ -10,6 +10,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 
 using sihps::CSRMatrix;
@@ -102,4 +104,57 @@ SIHPS_TEST(mps_reader_undeclared_row_reference_throws) {
 
 SIHPS_TEST(mps_reader_missing_file_throws) {
     SIHPS_ASSERT_THROWS(read_mps_file("this/path/does/not/exist.mps"));
+}
+
+SIHPS_TEST(mps_reader_deterministic_generated_sparse_models_round_trip) {
+    // Small generated models exercise the section transitions, sparse
+    // triplet assembly, RHS parsing, and bound defaults without relying on a
+    // hand-written fixture.  The arithmetic is deterministic so a parser
+    // regression is reproducible on every host and compiler.
+    namespace fs = std::filesystem;
+    const fs::path tmp = fs::temp_directory_path() / "sihps_generated_sparse_fuzz.mps";
+    std::ofstream out(tmp);
+    SIHPS_ASSERT_TRUE(static_cast<bool>(out));
+    out << std::setprecision(17);
+    constexpr int rows = 7;
+    constexpr int cols = 11;
+    out << "NAME GENERATED\nROWS\n N OBJ\n";
+    for (int i = 0; i < rows; ++i) out << " L R" << i << "\n";
+    out << "COLUMNS\n";
+    int expected_nnz = 0;
+    for (int j = 0; j < cols; ++j) {
+        const double objective = (j % 3 == 0) ? -0.125 * (j + 1) : 0.25 * j;
+        out << " X" << j << " OBJ " << objective;
+        for (int i = 0; i < rows; ++i) {
+            if ((i * 13 + j * 7 + 3) % 5 == 0) {
+                const double value = ((i + 1) * (j + 2) % 9 - 4) * 0.375;
+                out << " R" << i << " " << value;
+                ++expected_nnz;
+            }
+        }
+        out << "\n";
+    }
+    out << "RHS RHS1";
+    for (int i = 0; i < rows; ++i) out << " R" << i << " " << (i * 1.25 - 2.0);
+    out << "\nBOUNDS\n";
+    for (int j = 0; j < cols; ++j) {
+        out << " LO BND X" << j << " " << (j % 2 == 0 ? 0.0 : -2.0) << "\n";
+        out << " UP BND X" << j << " " << (j + 3.0) << "\n";
+    }
+    out << "ENDATA\n";
+    out.close();
+
+    auto model = read_mps_file(tmp.string());
+    SIHPS_ASSERT_EQ(model.n_rows, rows);
+    SIHPS_ASSERT_EQ(model.n_cols, cols);
+    SIHPS_ASSERT_EQ(static_cast<int>(model.constraint_triplets.size()), expected_nnz);
+    SIHPS_ASSERT_EQ(model.rhs.size(), static_cast<std::size_t>(rows));
+    SIHPS_ASSERT_EQ(model.col_lower.size(), static_cast<std::size_t>(cols));
+    SIHPS_ASSERT_EQ(model.col_upper.size(), static_cast<std::size_t>(cols));
+    for (int j = 0; j < cols; ++j) {
+        SIHPS_ASSERT_NEAR(model.col_lower[static_cast<std::size_t>(j)],
+                          j % 2 == 0 ? 0.0 : -2.0, 0.0);
+        SIHPS_ASSERT_NEAR(model.col_upper[static_cast<std::size_t>(j)], j + 3.0, 0.0);
+    }
+    fs::remove(tmp);
 }
