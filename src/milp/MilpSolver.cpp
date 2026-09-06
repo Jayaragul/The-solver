@@ -708,6 +708,16 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
 
     LpSolverOptions relaxation_options = options.lp_options;
     relaxation_options.method = LpMethod::SIMPLEX;
+    const auto apply_remaining_lp_budget = [&](LpSolverOptions& lp_options) {
+        if (options.time_limit_seconds <= 0.0) return;
+        const double elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - start).count();
+        const double remaining = std::max(0.0, options.time_limit_seconds - elapsed);
+        if (lp_options.simplex_time_budget_seconds <= 0.0 ||
+            remaining < lp_options.simplex_time_budget_seconds) {
+            lp_options.simplex_time_budget_seconds = remaining;
+        }
+    };
     bool has_integer_variables = false;
     for (VariableType type : problem.variable_types) {
         has_integer_variables |= type != VariableType::CONTINUOUS;
@@ -831,7 +841,9 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                 ++solution.lp_relaxations;
                 ++solution.diving_heuristic_lp_relaxations;
                 ++dive_relaxations;
-                const LpSolution child = solve_lp(workspace, relaxation_options);
+                auto dive_options = relaxation_options;
+                apply_remaining_lp_budget(dive_options);
+                const LpSolution child = solve_lp(workspace, dive_options);
                 workspace.lower = dive_lower;
                 workspace.upper = dive_upper;
                 if (child.status != LpStatus::OPTIMAL ||
@@ -905,7 +917,9 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                 ++trials;
                 ++solution.lp_relaxations;
                 ++solution.local_improvement_lp_relaxations;
-                const LpSolution local_solution = solve_lp(local, relaxation_options);
+                auto local_options = relaxation_options;
+                apply_remaining_lp_budget(local_options);
+                const LpSolution local_solution = solve_lp(local, local_options);
                 if (local_solution.status != LpStatus::OPTIMAL ||
                     local_solution.x.size() != static_cast<std::size_t>(problem.n_cols())) {
                     continue;
@@ -982,7 +996,13 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                                          solution.integer_rhs_tightenings);
         }
 
+        if (timed_out()) {
+            solution.status = MilpStatus::TIME_LIMIT;
+            break;
+        }
         ++solution.lp_relaxations;
+        auto node_options = relaxation_options;
+        apply_remaining_lp_budget(node_options);
         LpSolution relaxation;
         std::shared_ptr<const Simplex::Basis> node_basis;
         if (node->depth == 0 || !options.warm_start_node_relaxations) {
@@ -992,7 +1012,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             // not guaranteed once presolve's bound-dependent reductions
             // are in the picture. Every node also takes this path when the
             // feature is off, which is exactly today's behavior.
-            relaxation = solve_lp(workspace, relaxation_options);
+            relaxation = solve_lp(workspace, node_options);
         } else {
             if (!node_scale_ready) {
                 node_scale = relaxation_options.use_ruiz_scaling
@@ -1000,11 +1020,11 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                                  : ScaleFactors::identity(workspace.n_rows(), workspace.n_cols());
                 node_scale_ready = true;
             }
-            Simplex simplex(workspace, relaxation_options.backend,
-                             relaxation_options.use_ruiz_scaling, relaxation_options.pricing_rule,
+            Simplex simplex(workspace, node_options.backend,
+                             node_options.use_ruiz_scaling, node_options.pricing_rule,
                              LpAlgorithm::AUTO, relaxation_options.parallel_mode, &node_scale);
-            if (relaxation_options.simplex_time_budget_seconds > 0.0) {
-                simplex.set_time_budget(relaxation_options.simplex_time_budget_seconds);
+            if (node_options.simplex_time_budget_seconds > 0.0) {
+                simplex.set_time_budget(node_options.simplex_time_budget_seconds);
             }
             if (node_parent_basis) simplex.set_warm_start_basis(node_parent_basis.get());
 
@@ -1030,6 +1050,10 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             relaxation_unbounded = true;
             solution.status = has_integer_variables ? MilpStatus::UNBOUNDED_RELAXATION
                                                      : MilpStatus::UNBOUNDED;
+            break;
+        }
+        if (relaxation.status == LpStatus::ITERATION_LIMIT && timed_out()) {
+            solution.status = MilpStatus::TIME_LIMIT;
             break;
         }
         if (relaxation.status != LpStatus::OPTIMAL ||
@@ -1180,6 +1204,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                         probe_workspace.upper = std::move(probe_upper);
                         LpSolverOptions probe_options = relaxation_options;
                         probe_options.parallel_mode = ParallelMode::SERIAL;
+                        apply_remaining_lp_budget(probe_options);
                         const LpSolution probe = solve_lp(probe_workspace, probe_options);
                         ++outcomes[probe_index].solves;
                         if (probe.status == LpStatus::INFEASIBLE) return {true, kInfinityValue};

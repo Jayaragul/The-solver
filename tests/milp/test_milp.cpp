@@ -424,6 +424,17 @@ SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     SIHPS_ASSERT_TRUE(result.status != MilpStatus::OPTIMAL);
 }
 
+SIHPS_TEST(milp_time_limit_is_not_reported_as_numerical_failure) {
+    MilpSolverOptions options;
+    options.time_limit_seconds = 1e-12;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    const auto result = sihps::solve_milp(binary_knapsack(), options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::TIME_LIMIT);
+    SIHPS_ASSERT_TRUE(result.status != MilpStatus::NUMERICAL_FAILURE);
+}
+
 SIHPS_TEST(milp_large_rhs_does_not_mask_another_rows_violation) {
     LpProblem lp;
     lp.A = CSRMatrix::from_triplets(2, 2, {{0, 0, 1.0}, {1, 1, 1.0}});
