@@ -1,6 +1,6 @@
-# MIPLIB 2017 small subset — native Release MILP record
+# MIPLIB 2017 small subset — native Release MILP record (reliability baseline)
 
-Date: 2026-08-31
+Date: 2026-08-31 (historical baseline)
 
 This record is a complete 19-instance run of the checked-in MIPLIB subset on
 the native MSVC/CUDA Release build. It uses the production warm-start default,

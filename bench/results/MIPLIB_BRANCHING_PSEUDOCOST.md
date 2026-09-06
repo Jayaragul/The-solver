@@ -25,4 +25,10 @@ branching remains available for controlled ablations. The result is a
 time-limited benchmark improvement, not a claim that all 19 instances are
 solved or that pseudocost dominates on every model family.
 
+As a 60-second spot check after promotion, pseudocost reached the same exact
+incumbent on `gen-ip002`, improved `gen-ip054` from 6857.6491 to 6852.3680,
+and matched the reliability incumbent (231) on `markshare2`. The existing
+19-instance 60-second table remains explicitly labeled as the earlier
+reliability baseline until a complete replacement sweep is run.
+
 Raw repeated-run output: [`MIPLIB_BRANCH_PSEUDO_SWEEP_10S_R2.txt`](MIPLIB_BRANCH_PSEUDO_SWEEP_10S_R2.txt).
