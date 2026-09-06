@@ -256,6 +256,34 @@ SIHPS_TEST(milp_rounding_cut_preserves_small_coefficient_large_bound) {
     }
 }
 
+SIHPS_TEST(milp_optional_coefficient_rounding_cut_is_valid) {
+    // 1.5 x <= 1.9 with integer x is strengthened safely to x <= 1.
+    // The ordinary integer-RHS cut cannot fire because the coefficient is
+    // fractional; the opt-in coefficient-floor separator can close the LP
+    // root without changing the integer optimum.
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 1.5}});
+    lp.obj = {-1.0};
+    lp.rhs = {1.9};
+    lp.row_types = {'L'};
+    lp.lower = {0.0};
+    lp.upper = {10.0};
+    sihps::apply_default_row_bounds(lp);
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    options.enable_root_integer_rounding_cuts = false;
+    options.enable_root_integer_coefficient_rounding_cuts = true;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.has_incumbent);
+    SIHPS_ASSERT_NEAR(result.objective_value, -1.0, 1e-8);
+    SIHPS_ASSERT_EQ(result.root_integer_coefficient_rounding_cuts, 1);
+    SIHPS_ASSERT_TRUE(result.nodes_processed >= 1);
+}
+
 SIHPS_TEST(milp_optional_gmi_cut_closes_fractional_integer_row) {
     LpProblem lp;
     lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 2.0}});

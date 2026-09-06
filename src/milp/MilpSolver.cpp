@@ -601,6 +601,81 @@ void append_integer_rounding_cuts(LpProblem& workspace,
     }
 }
 
+// Validity-preserving coefficient-floor strengthening for pure-integer rows.
+// Normalize every one-sided row to a*x <= b.  With integer x >= l, let
+// y=x-l >= 0 and c=floor(a).  Then c*y <= a*y <= b-a*l, and c*y is integer,
+// so c*y <= floor(b-a*l).  The routine skips continuous variables, ranged
+// rows, non-finite bounds, overflow-prone activity, and rows where no
+// coefficient was actually rounded.  This is intentionally narrower than a
+// general MIR separator: it is simple enough to audit and never weakens the
+// certificate path.
+std::vector<IntegerRoundingCut> separate_integer_coefficient_rounding_cuts(
+    const MilpProblem& problem, const std::vector<double>& x, double violation_tolerance,
+    std::uint32_t limit) {
+    std::vector<IntegerRoundingCut> cuts;
+    const LpProblem& lp = problem.relaxation;
+    constexpr double integer_tolerance = 1e-10;
+    constexpr double max_exact_integer = 9007199254740991.0;
+    for (std::int32_t row = 0; row < lp.n_rows() && cuts.size() < limit; ++row) {
+        const auto rr = static_cast<std::size_t>(row);
+        const char type = lp.row_types[rr];
+        if (type != 'L' && type != 'G') continue;
+        if (std::isfinite(lp.slack_lower[rr]) && std::isfinite(lp.slack_upper[rr])) continue;
+        const double slack_endpoint = type == 'L' ? lp.slack_lower[rr] : lp.slack_upper[rr];
+        const double source_rhs = lp.rhs[rr] - slack_endpoint;
+        if (!std::isfinite(source_rhs)) continue;
+        const double sign = type == 'L' ? 1.0 : -1.0;
+        const double normalized_rhs = sign * source_rhs;
+        if (!std::isfinite(normalized_rhs)) continue;
+
+        IntegerRoundingCut cut;
+        cut.row_type = 'L';
+        bool valid = true;
+        bool coefficient_changed = false;
+        double lower_shift = 0.0;
+        double activity = 0.0;
+        for (std::int32_t k = lp.A.row_ptr()[row]; k < lp.A.row_ptr()[row + 1]; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            const std::int32_t variable = lp.A.col_idx()[kk];
+            const auto jj = static_cast<std::size_t>(variable);
+            if (problem.variable_types[jj] == VariableType::CONTINUOUS ||
+                !std::isfinite(lp.lower[jj])) {
+                valid = false;
+                break;
+            }
+            const double integer_lower = std::ceil(lp.lower[jj] - integer_tolerance);
+            if (!std::isfinite(integer_lower) || std::fabs(integer_lower) > max_exact_integer ||
+                !std::isfinite(lp.A.values()[kk])) {
+                valid = false;
+                break;
+            }
+            const double normalized = sign * lp.A.values()[kk];
+            const double coefficient = std::floor(normalized);
+            if (!std::isfinite(coefficient) || std::fabs(coefficient) > max_exact_integer) {
+                valid = false;
+                break;
+            }
+            if (std::fabs(coefficient - normalized) > integer_tolerance) coefficient_changed = true;
+            lower_shift += coefficient * integer_lower;
+            if (!std::isfinite(lower_shift) || std::fabs(lower_shift) > max_exact_integer) {
+                valid = false;
+                break;
+            }
+            if (coefficient != 0.0) {
+                cut.terms.emplace_back(variable, coefficient);
+                activity += coefficient * x[jj];
+            }
+        }
+        if (!valid || !coefficient_changed || cut.terms.empty()) continue;
+        const double cut_rhs = std::floor(normalized_rhs - lower_shift + integer_tolerance) +
+                               lower_shift;
+        if (!std::isfinite(cut_rhs) || activity <= cut_rhs + violation_tolerance) continue;
+        cut.rhs = cut_rhs;
+        cuts.push_back(std::move(cut));
+    }
+    return cuts;
+}
+
 void append_general_cuts(LpProblem& workspace, const std::vector<GeneralCut>& cuts) {
     const std::int32_t old_rows = workspace.n_rows();
     std::size_t new_nnz = 0;
@@ -1260,7 +1335,8 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         record_pseudocost(*node, lower_bound, false);
 
         if (node->depth == 0 && !root_cuts_separated &&
-            (options.enable_root_cover_cuts || options.enable_root_integer_rounding_cuts)) {
+            (options.enable_root_cover_cuts || options.enable_root_integer_rounding_cuts ||
+             options.enable_root_integer_coefficient_rounding_cuts)) {
             root_cuts_separated = true;
             const auto cover_cuts = options.enable_root_cover_cuts
                                         ? separate_cover_cuts(problem, relaxation.x,
@@ -1273,7 +1349,13 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                                                 options.cut_violation_tolerance,
                                                 options.max_root_integer_rounding_cuts)
                                           : std::vector<IntegerRoundingCut>{};
-            if (!cover_cuts.empty() || !integer_cuts.empty()) {
+            const auto coefficient_cuts = options.enable_root_integer_coefficient_rounding_cuts
+                                              ? separate_integer_coefficient_rounding_cuts(
+                                                    problem, relaxation.x,
+                                                    options.cut_violation_tolerance,
+                                                    options.max_root_integer_coefficient_rounding_cuts)
+                                              : std::vector<IntegerRoundingCut>{};
+            if (!cover_cuts.empty() || !integer_cuts.empty() || !coefficient_cuts.empty()) {
                 if (!cover_cuts.empty()) {
                     append_cover_cuts(workspace, cover_cuts);
                     solution.root_cover_cuts = cover_cuts.size();
@@ -1282,6 +1364,10 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                 if (!integer_cuts.empty()) {
                     append_integer_rounding_cuts(workspace, integer_cuts);
                     solution.root_integer_rounding_cuts = integer_cuts.size();
+                }
+                if (!coefficient_cuts.empty()) {
+                    append_integer_rounding_cuts(workspace, coefficient_cuts);
+                    solution.root_integer_coefficient_rounding_cuts = coefficient_cuts.size();
                 }
                 open.push(node);
                 continue;

@@ -9,6 +9,8 @@ does not treat README claims as benchmark evidence.
 1. **Tableau GMI cuts.** The reference has a guarded root Gomory mixed-integer
    separator. This repository now includes the same approach behind
    `enable_root_gmi_cuts`, with a direct regression on a fractional integer row.
+   A narrower pure-integer coefficient-floor experiment was also tested and
+   rejected by the MIPLIB gate; it remains opt-in for research only.
 2. **Structure-specific exact search.** `ExactBinarySplit` recognizes a narrow
    binary-plus-unit-slack equality family and uses complete meet-in-the-middle
    enumeration. That is a legitimate answer for `markshare2`-class models,
@@ -38,6 +40,7 @@ implemented as opt-in experiments, while exact binary split and parallel B&B
 remain separate measured candidates. Both current gates are negative at 10
 seconds, so neither is enabled by default; see
 [`MIPLIB_GMI_ABLATION_10S.md`](../results/MIPLIB_GMI_ABLATION_10S.md) and
-[`MIPLIB_RENS_ABLATION_10S.md`](../results/MIPLIB_RENS_ABLATION_10S.md).
+[`MIPLIB_RENS_ABLATION_10S.md`](../results/MIPLIB_RENS_ABLATION_10S.md), plus
+[`MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md`](../results/MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md).
 This preserves the repository's rule that a new lever must improve a declared
 benchmark KPI before becoming production behavior.

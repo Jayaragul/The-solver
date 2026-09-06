@@ -70,6 +70,12 @@ struct MilpSolverOptions {
     // non-ranged sides so validity is unconditional and postsolve-free.
     bool enable_root_integer_rounding_cuts = true;
     std::uint32_t max_root_integer_rounding_cuts = 64;
+    // Optional pure-integer coefficient-floor cuts. For a one-sided row with
+    // integer variables and finite integer lower bounds, flooring the
+    // normalized coefficients is a validity-preserving MIR-lite transform.
+    // Keep it opt-in until the MIPLIB gate demonstrates a net benefit.
+    bool enable_root_integer_coefficient_rounding_cuts = false;
+    std::uint32_t max_root_integer_coefficient_rounding_cuts = 64;
     double cut_violation_tolerance = 1e-7;
 
     // Warm-started dual simplex for node relaxations (docs/architecture/
@@ -112,6 +118,7 @@ struct MilpSolution {
     std::uint64_t cover_cuts = 0;
     std::uint64_t root_gmi_cuts = 0;
     std::uint64_t root_integer_rounding_cuts = 0;
+    std::uint64_t root_integer_coefficient_rounding_cuts = 0;
     std::uint64_t incumbent_updates = 0;
     std::uint64_t diving_heuristic_lp_relaxations = 0;
     std::uint64_t rens_heuristic_lp_relaxations = 0;

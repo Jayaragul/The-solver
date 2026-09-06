@@ -115,7 +115,7 @@ rather than trying to reconcile the two. This trades some node-local presolve
 reductions for substantially cheaper certified re-solves; the bound invariant
 is unaffected either way.
 
-## 2. Cuts (implemented root cover, integer-rounding, and guarded GMI families)
+## 2. Cuts (implemented root cover, integer-rounding, coefficient-floor, and guarded GMI families)
 
 The first cut implementation is deliberately narrow and auditable: root-only
 cover inequalities for rows with a finite upper activity bound and finite
@@ -157,12 +157,24 @@ transformation or unverified postsolve mapping is hidden behind the option.
 The numerical regression record is in
 [`INTEGER_ROUNDING_VALIDITY.md`](../../bench/results/INTEGER_ROUNDING_VALIDITY.md).
 
+An additional opt-in `enable_root_integer_coefficient_rounding_cuts` separator
+handles a narrower pure-integer case with fractional coefficients. It
+normalizes a one-sided row to `a*x <= b`, shifts each integer variable by its
+finite integer lower bound, floors the coefficients, and rounds the resulting
+integer right-hand side. Continuous columns, ranged rows, non-finite bounds,
+overflow-prone activity, and rows with no fractional coefficient are rejected.
+This is a validity-preserving MIR-lite experiment, not a general MIR
+implementation. The 10-second MIPLIB gate found no incumbent improvement and
+lower node throughput on both `gen-ip002` and `gen-ip054`; it therefore remains
+disabled by default. Evidence is recorded in
+[`MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md`](../../bench/results/MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md).
+
 ```cpp
 class CutManager {
 public:
-    // Current implementation: root-only cover, all-integer row-rounding, and
-    // guarded opt-in GMI separation. General MIR/flow-cover strengthening is
-    // intentionally not implied here.
+    // Current implementation: root-only cover, integer row-rounding,
+    // opt-in coefficient-floor, and guarded opt-in GMI separation. General
+    // MIR/flow-cover strengthening is intentionally not implied here.
     std::vector<Cut> separate(const LPResult& fractional_solution);
 };
 ```
