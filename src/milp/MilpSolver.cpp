@@ -1456,8 +1456,16 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             // Same shared_ptr, refcounted rather than duplicated -- both
             // children start from the same parent basis, one bound-change
             // delta apart from it in opposite directions.
-            pending_basis.emplace(left->order, node_basis);
-            pending_basis.emplace(right->order, node_basis);
+            const auto retain_basis = [&](std::uint64_t order) {
+                if (options.max_pending_warm_start_bases == 0 ||
+                    pending_basis.size() < options.max_pending_warm_start_bases) {
+                    pending_basis.emplace(order, node_basis);
+                } else {
+                    ++solution.warm_start_basis_cap_skips;
+                }
+            };
+            retain_basis(left->order);
+            retain_basis(right->order);
         }
 
         open.push(std::move(left));

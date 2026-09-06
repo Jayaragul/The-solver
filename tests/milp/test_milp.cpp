@@ -751,3 +751,20 @@ SIHPS_TEST(milp_warm_start_fallback_counter_is_zero_or_explained) {
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
     SIHPS_ASSERT_TRUE(result.warm_start_verification_fallbacks == 0);
 }
+
+SIHPS_TEST(milp_warm_start_basis_cap_preserves_certificate) {
+    MilpSolverOptions uncapped;
+    uncapped.use_rounding_heuristic = false;
+    uncapped.enable_root_cover_cuts = false;
+    uncapped.warm_start_node_relaxations = true;
+    const auto baseline = sihps::solve_milp(binary_knapsack(), uncapped);
+
+    MilpSolverOptions capped = uncapped;
+    capped.max_pending_warm_start_bases = 1;
+    const auto result = sihps::solve_milp(binary_knapsack(), capped);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.has_incumbent);
+    SIHPS_ASSERT_NEAR(result.objective_value, baseline.objective_value, 1e-8);
+    SIHPS_ASSERT_TRUE(result.warm_start_basis_cap_skips >= 1);
+}

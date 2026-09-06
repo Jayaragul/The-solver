@@ -135,6 +135,7 @@ int main(int argc, char** argv) {
     const std::string parallel_mode = argc > 7 ? argv[7] : "auto";
     const std::uint32_t repetitions = argc > 8 ? std::stoul(argv[8]) : 1;
     const bool enable_gmi = argc > 9 && std::string(argv[9]) == "on";
+    const std::uint64_t warm_basis_cap = argc > 10 ? std::stoull(argv[10]) : 50000;
     if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
@@ -162,6 +163,7 @@ int main(int argc, char** argv) {
               << " parallel_mode=" << parallel_mode
               << " repetitions=" << repetitions
               << " gmi=" << (enable_gmi ? "on" : "off")
+              << " warm_basis_cap=" << warm_basis_cap
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -172,7 +174,7 @@ int main(int argc, char** argv) {
               << std::setw(8) << "prop" << std::setw(8) << "rhs" << std::setw(12)
               << "best_bound"
               << std::setw(10) << "gap" << std::setw(10) << "warm" << std::setw(10)
-              << "warm_fb"
+              << "warm_fb" << std::setw(10) << "warm_cap"
               << "  verdict\n";
     std::cout << std::string(195, '-') << '\n';
 
@@ -192,6 +194,7 @@ int main(int argc, char** argv) {
             options.time_limit_seconds = time_limit;
             options.use_rounding_heuristic = true;
             options.enable_root_gmi_cuts = enable_gmi;
+            options.max_pending_warm_start_bases = warm_basis_cap;
             options.warm_start_node_relaxations = warm_start;
             if (parallel_mode == "serial") {
                 options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
@@ -302,7 +305,8 @@ int main(int argc, char** argv) {
                       << std::setw(12) << std::setprecision(8) << result.best_bound << " "
                       << std::setw(10) << result.relative_gap << std::setw(10)
                       << result.warm_started_relaxations << std::setw(10)
-                      << result.warm_start_verification_fallbacks << std::right
+                      << result.warm_start_verification_fallbacks << std::setw(10)
+                      << result.warm_start_basis_cap_skips << std::right
                       << "  " << verdict << (repeat_consistent ? "" : " [REPEAT_VARIANCE]")
                       << '\n';
         } catch (const std::exception& error) {

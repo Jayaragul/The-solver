@@ -79,6 +79,10 @@ struct MilpSolverOptions {
     // disable it for cold-start ablations or when node-local presolve is more
     // valuable than basis reuse on a particular model family.
     bool warm_start_node_relaxations = true;
+    // A zero cap retains bases for every queued child. A finite cap prevents
+    // weak-bound trees from consuming unbounded host memory; children beyond
+    // it use the existing cold certified LP path.
+    std::uint64_t max_pending_warm_start_bases = 50000;
     // Detect modularly impossible all-integer equality rows before invoking
     // the LP relaxation. Requires exactly integral coefficients within the
     // safe integer range and zero equality slack. Bounds may be infinite.
@@ -115,6 +119,7 @@ struct MilpSolution {
     // is a signal worth investigating, not an accepted steady state.
     std::uint64_t warm_started_relaxations = 0;
     std::uint64_t warm_start_verification_fallbacks = 0;
+    std::uint64_t warm_start_basis_cap_skips = 0;
     std::uint64_t integer_gcd_prunes = 0;
     std::uint64_t integer_propagation_prunes = 0;
     std::uint64_t integer_bound_tightenings = 0;

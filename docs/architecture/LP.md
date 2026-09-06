@@ -314,6 +314,15 @@ original-space verification gate (`NUMERICS.md` §6) as every other path;
 simplex solve is unchanged. Gated behind
 `MilpSolverOptions::warm_start_node_relaxations`, **default `true`**.
 
+**Bounded frontier retention.** A warm basis is retained only while its child
+is queued. `max_pending_warm_start_bases` (default 50,000; zero means
+unlimited) adds a second safeguard for weak-bound trees: once the frontier has
+that many retained bases, new children take the already-tested cold certified
+LP path. This changes neither pruning nor proof semantics. On `markshare2`,
+the cap activated for 39,374 children in a 60-second run while preserving the
+same incumbent and bound; see
+[`MIPLIB_WARM_BASIS_CAP.md`](../../bench/results/MIPLIB_WARM_BASIS_CAP.md).
+
 **Why presolve is bypassed at node level, not made warm-start-aware.**
 Presolve's reductions are bound-dependent — a child's tighter bound can fix a
 column or drop a row the parent's presolve did not — so a warm basis is only
