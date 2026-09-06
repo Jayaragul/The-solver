@@ -862,7 +862,8 @@ double relative_gap(bool has_incumbent, double incumbent, double best_bound) {
 MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& options) {
     validate_milp_problem(problem);
     if (options.integrality_tolerance < 0.0 || options.feasibility_tolerance < 0.0 ||
-        options.objective_tolerance < 0.0 || options.time_limit_seconds < 0.0) {
+        options.objective_tolerance < 0.0 || options.time_limit_seconds < 0.0 ||
+        options.feasibility_pump_objective_weight < 0.0) {
         throw std::invalid_argument("MilpSolverOptions: tolerances and limits must be nonnegative");
     }
     if (options.reliability_threshold == 0 &&
@@ -1220,6 +1221,18 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             pump.A = CSRMatrix::from_triplets(m + 2 * integer_count,
                                               n + integer_count, entries);
             pump.obj.assign(static_cast<std::size_t>(n + integer_count), 0.0);
+            double objective_scale = 0.0;
+            for (double coefficient : workspace.obj) {
+                objective_scale = std::max(objective_scale, std::fabs(coefficient));
+            }
+            if (objective_scale == 0.0) objective_scale = 1.0;
+            if (options.feasibility_pump_objective_weight > 0.0) {
+                for (std::int32_t j = 0; j < n; ++j) {
+                    pump.obj[static_cast<std::size_t>(j)] =
+                        options.feasibility_pump_objective_weight *
+                        workspace.obj[static_cast<std::size_t>(j)] / objective_scale;
+                }
+            }
             pump.lower = starting_lower;
             pump.upper = starting_upper;
             pump.lower.resize(static_cast<std::size_t>(n + integer_count), 0.0);

@@ -261,6 +261,7 @@ SIHPS_TEST(milp_opt_in_feasibility_pump_proposes_certified_incumbent) {
     options.use_rounding_heuristic = false;
     options.enable_root_cover_cuts = false;
     options.use_feasibility_pump = true;
+    options.feasibility_pump_objective_weight = 0.1;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);

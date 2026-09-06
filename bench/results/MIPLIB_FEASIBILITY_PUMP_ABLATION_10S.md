@@ -4,8 +4,9 @@ Date: 2026-09-07
 
 This controlled native Release experiment enables the bounded feasibility pump
 and disables the ordinary rounding heuristic (`rounding=off`) so the pump's
-effect is isolated. Other settings are pseudocost branching, serial LP
-execution, warm starts, a 50,000 pending-basis cap, no GMI, no RENS, and no
+effect is isolated. The table uses `fp_weight=0`, i.e. pure distance
+minimization. Other settings are pseudocost branching, serial LP execution,
+warm starts, a 50,000 pending-basis cap, no GMI, no RENS, and no
 coefficient-floor cuts.
 
 | instance | pump LPs | incumbent | reference | best bound | wall s |
@@ -21,9 +22,15 @@ This gate is negative: it does not improve the production rounding heuristic
 and remains disabled by default. A stronger future version needs objective
 perturbation and a repair/anti-cycling strategy before another adoption test.
 
+An objective tie-break is available through
+`feasibility_pump_objective_weight`. On `gen-ip002`, weights `0.1` and `1.0`
+still produced `-4460.4002357`; on `markshare2`, weights `1.0` and `10.0`
+produced `231`. These measurements do not clear the adoption gate, so the
+weight remains zero by default.
+
 Command (final optional arguments are coefficient rounding, pump, and ordinary
 rounding respectively):
 
 ```text
-build/cmake-cuda-release/benchmarks/bench_miplib.exe data/miplib2017_small data/miplib2017_small/miplib2017-v36.solu <instance> 10 pseudocost on serial 1 off 50000 off off on off
+build/cmake-cuda-release/benchmarks/bench_miplib.exe data/miplib2017_small data/miplib2017_small/miplib2017-v36.solu <instance> 10 pseudocost on serial 1 off 50000 off off on off 0
 ```

@@ -51,6 +51,10 @@ struct MilpSolverOptions {
     bool use_feasibility_pump = false;
     std::uint32_t feasibility_pump_max_iterations = 8;
     std::uint32_t feasibility_pump_max_lp_relaxations = 8;
+    // Optional normalized original-objective tie-break in each pump LP.
+    // Zero gives pure distance minimization; positive values prefer better
+    // incumbent quality among similarly close repairs.
+    double feasibility_pump_objective_weight = 0.0;
     // Root RENS neighborhood: fix root-integral columns and restrict every
     // other integer column to its adjacent integer values, then solve one
     // LP. It only proposes an incumbent and remains opt-in until benchmarked.

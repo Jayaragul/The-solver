@@ -206,7 +206,9 @@ search state. LP diving and local improvement are enabled under bounded work
 limits. Root RENS is implemented as one restricted-LP experiment behind
 `use_rens_heuristic`; its first MIPLIB gate is negative, so it is disabled by
 default (`bench/results/MIPLIB_RENS_ABLATION_10S.md`). A bounded absolute-
-distance feasibility pump is implemented behind `use_feasibility_pump`; its
+distance feasibility pump is implemented behind `use_feasibility_pump`, with
+an optional normalized original-objective tie-break controlled by
+`feasibility_pump_objective_weight`; its
 isolated MIPLIB gate is also negative, so it remains disabled while objective
 perturbation and anti-cycling repair are researched
 (`bench/results/MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md`).

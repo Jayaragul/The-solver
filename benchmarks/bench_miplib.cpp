@@ -140,6 +140,7 @@ int main(int argc, char** argv) {
     const bool enable_coefficient_rounding = argc > 12 && std::string(argv[12]) == "on";
     const bool enable_feasibility_pump = argc > 13 && std::string(argv[13]) == "on";
     const bool enable_rounding_heuristic = !(argc > 14 && std::string(argv[14]) == "off");
+    const double feasibility_pump_weight = argc > 15 ? std::stod(argv[15]) : 0.0;
     if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
@@ -172,6 +173,7 @@ int main(int argc, char** argv) {
               << " coefficient_rounding=" << (enable_coefficient_rounding ? "on" : "off")
               << " feasibility_pump=" << (enable_feasibility_pump ? "on" : "off")
               << " rounding=" << (enable_rounding_heuristic ? "on" : "off")
+              << " fp_weight=" << feasibility_pump_weight
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -206,6 +208,7 @@ int main(int argc, char** argv) {
             options.use_rens_heuristic = enable_rens;
             options.enable_root_integer_coefficient_rounding_cuts = enable_coefficient_rounding;
             options.use_feasibility_pump = enable_feasibility_pump;
+            options.feasibility_pump_objective_weight = feasibility_pump_weight;
             options.warm_start_node_relaxations = warm_start;
             if (parallel_mode == "serial") {
                 options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
