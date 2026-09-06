@@ -76,4 +76,7 @@ sihps_set_warnings(bench_milp)
 
 add_executable(bench_miplib bench_miplib.cpp)
 target_link_libraries(bench_miplib PRIVATE sihps_core)
+if(WIN32)
+  target_link_libraries(bench_miplib PRIVATE Psapi)
+endif()
 sihps_set_warnings(bench_miplib)

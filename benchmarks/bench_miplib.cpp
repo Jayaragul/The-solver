@@ -25,6 +25,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -65,6 +66,12 @@ ResourceSnapshot resources() {
         ULARGE_INTEGER user_ticks {user.dwLowDateTime, user.dwHighDateTime};
         snapshot.cpu_seconds = static_cast<double>(kernel_ticks.QuadPart + user_ticks.QuadPart) /
                                1.0e7;
+    }
+    PROCESS_MEMORY_COUNTERS_EX memory {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+                             sizeof(memory))) {
+        snapshot.peak_rss_kb = static_cast<long>(memory.PeakWorkingSetSize / 1024);
     }
 #endif
     try {

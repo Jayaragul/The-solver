@@ -47,16 +47,22 @@ SHA-256 in the [manifest](MIPLIB_ABSOLUTE_GATE_10S_manifest.json).
   of numerical correctness.
 
 CPU time is substantially below wall time for many rows. These single-run
-times therefore do not support a performance improvement claim. This is not
+times therefore do not support a performance improvement claim. Peak working
+set is captured through the Windows process API. This is not
 directly comparable with the earlier 60-second sweep: both the budget and
 the incumbent gate differ.
 
 The old text runner uses zero placeholders when no incumbent exists. It
 also labels `neos859080` as `INCUMBENT_ONLY` because its published reference
 is infeasible, even though this run timed out without an incumbent. That
-label is not a successful result. Zero RSS is unavailable Windows measurement;
-GPU availability does not imply GPU MILP execution. These output limitations
+label is not a successful result. GPU availability does not imply GPU MILP
+execution. These output limitations
 are retained explicitly rather than interpreted as solution evidence.
+
+The memory capture was independently exercised on Release `22433` with a
+5-second limit: the runner reported `RSS_MB=114.867`, confirming the field is
+now populated. That short run was a time limit with objective 21540 and is
+not part of the 10-second solution-count table above.
 
 Run from the Visual Studio x64 developer environment:
 

@@ -56,8 +56,8 @@ against `miplib2017-v36.solu`.
 | blend2 | OPTIMAL | 7.598985 | 0 | 0 | 7859 | 5679 | 6.432 | 6.391 |
 
 `blend2` reported seven warm-start fallbacks; `22433` reported zero. The
-Windows runner still prints zero RSS, which is missing measurement, not zero
-memory use. GPU availability is reported but is not a claim of GPU execution
+The runner now captures peak working set through the Windows process API. GPU
+availability is reported but is not a claim of GPU execution
 for these serial simplex MILP solves. These single-run times cannot attribute
 a speed difference to the presolve change.
 
