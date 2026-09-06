@@ -35,6 +35,12 @@
 
 #ifdef __linux__
 #include <sys/resource.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
 #endif
 
 using namespace sihps;
@@ -60,6 +66,20 @@ ResourceSnapshot resource_snapshot() {
                                static_cast<double>(usage.ru_stime.tv_sec) +
                                static_cast<double>(usage.ru_stime.tv_usec) / 1e6;
         snapshot.peak_rss_kb = usage.ru_maxrss;
+    }
+#elif defined(_WIN32)
+    FILETIME creation {}, exit {}, kernel {}, user {};
+    if (GetProcessTimes(GetCurrentProcess(), &creation, &exit, &kernel, &user)) {
+        ULARGE_INTEGER kernel_ticks {kernel.dwLowDateTime, kernel.dwHighDateTime};
+        ULARGE_INTEGER user_ticks {user.dwLowDateTime, user.dwHighDateTime};
+        snapshot.cpu_seconds = static_cast<double>(kernel_ticks.QuadPart + user_ticks.QuadPart) /
+                               1.0e7;
+    }
+    PROCESS_MEMORY_COUNTERS_EX memory {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+                             sizeof(memory))) {
+        snapshot.peak_rss_kb = static_cast<long>(memory.PeakWorkingSetSize / 1024);
     }
 #endif
     try {

@@ -27,6 +27,12 @@
 
 #ifdef __linux__
 #include <sys/resource.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
 #endif
 
 using namespace sihps;
@@ -42,8 +48,12 @@ long peak_rss_kb() {
     getrusage(RUSAGE_SELF, &ru);
     return ru.ru_maxrss; // KB on Linux
 #else
-    // A portable peak-RSS query is not available in the MSVC CRT. Keep the
-    // benchmark runnable and report zero rather than inventing a value.
+    PROCESS_MEMORY_COUNTERS_EX memory {};
+    if (GetProcessMemoryInfo(GetCurrentProcess(),
+                             reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),
+                             sizeof(memory))) {
+        return static_cast<long>(memory.PeakWorkingSetSize / 1024);
+    }
     return 0;
 #endif
 }

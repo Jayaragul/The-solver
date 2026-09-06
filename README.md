@@ -113,7 +113,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | CUDA QPCBLEND convergence extension | 1,000,000 iterations reduce KKT residual from `6.528e-05` to `2.275e-05`; `--check-every 1000` cuts runtime about 9%, independent check passes | recorded |
 | CUDA queued-kernel benchmark | AFIRO median 2.286 s vs. 2.753 s synchronized; identical objective/residual | recorded |
 | Native end-to-end CLI | MPS parse → GPU solve → independent C verification | passed |
-| Windows MIPLIB resource accounting | MSVC benchmark reports process CPU seconds/CPU% and peak working-set RSS through `GetProcessTimes`/`GetProcessMemoryInfo` | passed |
+| Windows LP/MIPLIB resource accounting | MSVC benchmarks report process CPU seconds/CPU% and peak working-set RSS through `GetProcessTimes`/`GetProcessMemoryInfo` | passed |
 | Native revised-simplex CLI | AFIRO: 16 iterations, exact published objective to `6.14e-12` relative error, certified | passed |
 | Release MIPLIB warm-start refresh | `22433`, `23588`, and `blend2`: 3/3 exact certified objectives; warm-start wall time 1.8–2.7x lower than cold-start ablations | recorded |
 | Complete MIPLIB small Release sweep | 9/19 exact certified matches in a 60-second run; all 19 records retained with explicit limits and mismatches | recorded |

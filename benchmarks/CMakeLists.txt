@@ -8,10 +8,16 @@ sihps_set_warnings(bench_netlib)
 
 add_executable(bench_lp_solve bench_lp_solve.cpp)
 target_link_libraries(bench_lp_solve PRIVATE sihps_core)
+if(WIN32)
+  target_link_libraries(bench_lp_solve PRIVATE Psapi)
+endif()
 sihps_set_warnings(bench_lp_solve)
 
 add_executable(validate_netlib validate_netlib.cpp)
 target_link_libraries(validate_netlib PRIVATE sihps_core)
+if(WIN32)
+  target_link_libraries(validate_netlib PRIVATE Psapi)
+endif()
 sihps_set_warnings(validate_netlib)
 
 add_executable(validate_infeasible validate_infeasible.cpp)
