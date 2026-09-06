@@ -20,6 +20,8 @@ does not treat README claims as benchmark evidence.
 3. **Parallel tree search and RENS.** The reference contains experimental
    multi-worker B&B and a root RENS heuristic. These are useful follow-up
    candidates, but they require independent race, memory, and benchmark gates.
+   Our RENS and bounded feasibility-pump experiments are now both present as
+   opt-in features; neither cleared its MIPLIB adoption gate.
 
 ## What this repository currently does better or more conservatively
 
@@ -42,5 +44,7 @@ seconds, so neither is enabled by default; see
 [`MIPLIB_GMI_ABLATION_10S.md`](../results/MIPLIB_GMI_ABLATION_10S.md) and
 [`MIPLIB_RENS_ABLATION_10S.md`](../results/MIPLIB_RENS_ABLATION_10S.md), plus
 [`MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md`](../results/MIPLIB_COEFFICIENT_ROUNDING_ABLATION_10S.md).
+The feasibility-pump gate is recorded in
+[`MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md`](../results/MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md).
 This preserves the repository's rule that a new lever must improve a declared
 benchmark KPI before becoming production behavior.

@@ -1137,6 +1137,140 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
     };
 
+    const auto attempt_feasibility_pump = [&](const LpSolution& starting,
+                                              const std::vector<double>& starting_lower,
+                                              const std::vector<double>& starting_upper) {
+        if (!options.use_feasibility_pump || options.feasibility_pump_max_iterations == 0 ||
+            options.feasibility_pump_max_lp_relaxations == 0 || std::isfinite(incumbent)) {
+            return;
+        }
+
+        std::vector<std::int32_t> integer_columns;
+        for (std::int32_t j = 0; j < problem.n_cols(); ++j) {
+            if (problem.variable_types[static_cast<std::size_t>(j)] != VariableType::CONTINUOUS) {
+                integer_columns.push_back(j);
+            }
+        }
+        if (integer_columns.empty()) return;
+
+        std::vector<double> target = rounded_point(problem, starting.x,
+                                                   starting_lower, starting_upper);
+        std::vector<double> previous_target;
+        std::uint32_t relaxations = 0;
+
+        for (std::uint32_t iteration = 0;
+             iteration < options.feasibility_pump_max_iterations;
+             ++iteration) {
+            if (timed_out()) {
+                heuristic_timeout = true;
+                return;
+            }
+            if (target == previous_target) {
+                // A deterministic cycle break: flip the most fractional
+                // integer target that has an adjacent value in the node box.
+                std::int32_t selected = -1;
+                double best_fractionality = -1.0;
+                for (std::int32_t j : integer_columns) {
+                    const auto jj = static_cast<std::size_t>(j);
+                    const double value = starting.x[jj];
+                    const double fractionality =
+                        std::min(value - std::floor(value), std::ceil(value) - value);
+                    if (fractionality > best_fractionality &&
+                        std::isfinite(starting_lower[jj]) && std::isfinite(starting_upper[jj]) &&
+                        starting_lower[jj] < starting_upper[jj]) {
+                        selected = j;
+                        best_fractionality = fractionality;
+                    }
+                }
+                if (selected < 0) return;
+                const auto jj = static_cast<std::size_t>(selected);
+                const double down = target[jj] - 1.0;
+                const double up = target[jj] + 1.0;
+                if (down >= starting_lower[jj]) target[jj] = down;
+                else if (up <= starting_upper[jj]) target[jj] = up;
+                else return;
+            }
+            previous_target = target;
+
+            const std::int32_t n = workspace.n_cols();
+            const std::int32_t m = workspace.n_rows();
+            const std::int32_t integer_count = static_cast<std::int32_t>(integer_columns.size());
+            std::vector<Triplet> entries;
+            entries.reserve(static_cast<std::size_t>(workspace.A.nnz()) +
+                            static_cast<std::size_t>(2 * integer_count));
+            for (std::int32_t row = 0; row < m; ++row) {
+                for (std::int32_t k = workspace.A.row_ptr()[row];
+                     k < workspace.A.row_ptr()[row + 1]; ++k) {
+                    const auto kk = static_cast<std::size_t>(k);
+                    entries.push_back({row, workspace.A.col_idx()[kk], workspace.A.values()[kk]});
+                }
+            }
+            for (std::int32_t p = 0; p < integer_count; ++p) {
+                const std::int32_t variable = integer_columns[static_cast<std::size_t>(p)];
+                const std::int32_t distance_column = n + p;
+                const std::int32_t lower_row = m + 2 * p;
+                const std::int32_t upper_row = lower_row + 1;
+                entries.push_back({lower_row, variable, 1.0});
+                entries.push_back({lower_row, distance_column, -1.0});
+                entries.push_back({upper_row, variable, -1.0});
+                entries.push_back({upper_row, distance_column, -1.0});
+            }
+
+            LpProblem pump;
+            pump.A = CSRMatrix::from_triplets(m + 2 * integer_count,
+                                              n + integer_count, entries);
+            pump.obj.assign(static_cast<std::size_t>(n + integer_count), 0.0);
+            pump.lower = starting_lower;
+            pump.upper = starting_upper;
+            pump.lower.resize(static_cast<std::size_t>(n + integer_count), 0.0);
+            pump.upper.resize(static_cast<std::size_t>(n + integer_count), kInfinityValue);
+            for (std::int32_t p = 0; p < integer_count; ++p) {
+                pump.obj[static_cast<std::size_t>(n + p)] = 1.0;
+            }
+            pump.rhs = workspace.rhs;
+            pump.row_types = workspace.row_types;
+            pump.slack_lower = workspace.slack_lower;
+            pump.slack_upper = workspace.slack_upper;
+            pump.rhs.resize(static_cast<std::size_t>(m + 2 * integer_count), 0.0);
+            pump.row_types.resize(static_cast<std::size_t>(m + 2 * integer_count), 'L');
+            pump.slack_lower.resize(static_cast<std::size_t>(m + 2 * integer_count), 0.0);
+            pump.slack_upper.resize(static_cast<std::size_t>(m + 2 * integer_count), kInfinityValue);
+            for (std::int32_t p = 0; p < integer_count; ++p) {
+                const auto pp = static_cast<std::size_t>(p);
+                const std::int32_t variable = integer_columns[pp];
+                pump.rhs[static_cast<std::size_t>(m + 2 * p)] = target[static_cast<std::size_t>(variable)];
+                pump.rhs[static_cast<std::size_t>(m + 2 * p + 1)] =
+                    -target[static_cast<std::size_t>(variable)];
+            }
+            pump.lower.resize(static_cast<std::size_t>(n + integer_count));
+            pump.upper.resize(static_cast<std::size_t>(n + integer_count));
+            for (std::int32_t p = 0; p < integer_count; ++p) {
+                pump.lower[static_cast<std::size_t>(n + p)] = 0.0;
+                pump.upper[static_cast<std::size_t>(n + p)] = kInfinityValue;
+            }
+
+            if (relaxations >= options.feasibility_pump_max_lp_relaxations) return;
+            auto pump_options = relaxation_options;
+            apply_remaining_lp_budget(pump_options);
+            ++relaxations;
+            ++solution.lp_relaxations;
+            ++solution.feasibility_pump_lp_relaxations;
+            const LpSolution result = solve_lp(pump, pump_options);
+            if (result.status != LpStatus::OPTIMAL ||
+                result.x.size() != static_cast<std::size_t>(n + integer_count)) {
+                return;
+            }
+            std::vector<double> candidate(result.x.begin(), result.x.begin() + n);
+            if (integral_point(problem, candidate, options.integrality_tolerance)) {
+                if (consider_incumbent(candidate, starting_lower, starting_upper)) return;
+            }
+            const std::vector<double> next_target = rounded_point(
+                problem, candidate, starting_lower, starting_upper);
+            if (next_target == target) return;
+            target = next_target;
+        }
+    };
+
     const auto attempt_local_improvement = [&](const std::vector<double>& node_lower,
                                                const std::vector<double>& node_upper) {
         if (!options.use_local_improvement || options.local_improvement_passes == 0 ||
@@ -1424,6 +1558,12 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         if (node->depth == 0 && !std::isfinite(incumbent)) {
             attempt_rens(relaxation, lower, upper);
             if (timed_out()) {
+                open.push(node);
+                solution.status = MilpStatus::TIME_LIMIT;
+                break;
+            }
+            attempt_feasibility_pump(relaxation, lower, upper);
+            if (heuristic_timeout) {
                 open.push(node);
                 solution.status = MilpStatus::TIME_LIMIT;
                 break;

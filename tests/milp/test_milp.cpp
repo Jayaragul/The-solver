@@ -256,6 +256,19 @@ SIHPS_TEST(milp_rounding_cut_preserves_small_coefficient_large_bound) {
     }
 }
 
+SIHPS_TEST(milp_opt_in_feasibility_pump_proposes_certified_incumbent) {
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    options.use_feasibility_pump = true;
+    const auto result = sihps::solve_milp(binary_knapsack(), options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_TRUE(result.has_incumbent);
+    SIHPS_ASSERT_NEAR(result.objective_value, -10.0, 1e-8);
+    SIHPS_ASSERT_TRUE(result.feasibility_pump_lp_relaxations >= 1);
+}
+
 SIHPS_TEST(milp_optional_coefficient_rounding_cut_is_valid) {
     // 1.5 x <= 1.9 with integer x is strengthened safely to x <= 1.
     // The ordinary integer-RHS cut cannot fire because the coefficient is

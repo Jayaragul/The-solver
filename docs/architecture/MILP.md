@@ -205,8 +205,11 @@ feasibility and integrality check. A failed heuristic never changes the
 search state. LP diving and local improvement are enabled under bounded work
 limits. Root RENS is implemented as one restricted-LP experiment behind
 `use_rens_heuristic`; its first MIPLIB gate is negative, so it is disabled by
-default (`bench/results/MIPLIB_RENS_ABLATION_10S.md`). Feasibility pump remains
-deferred.
+default (`bench/results/MIPLIB_RENS_ABLATION_10S.md`). A bounded absolute-
+distance feasibility pump is implemented behind `use_feasibility_pump`; its
+isolated MIPLIB gate is also negative, so it remains disabled while objective
+perturbation and anti-cycling repair are researched
+(`bench/results/MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md`).
 Incumbent management is a single global best-solution record, single-writer,
 with no concurrency primitives; the B&B control loop is single-threaded.
 

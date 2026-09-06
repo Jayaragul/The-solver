@@ -46,6 +46,11 @@ struct MilpSolverOptions {
     bool use_diving_heuristic = true;
     std::uint32_t diving_max_depth = 32;
     std::uint32_t diving_max_lp_relaxations = 64;
+    // Bounded feasibility-pump experiment. The augmented LP minimizes
+    // distance to a rounded integer target; it can propose incumbents only.
+    bool use_feasibility_pump = false;
+    std::uint32_t feasibility_pump_max_iterations = 8;
+    std::uint32_t feasibility_pump_max_lp_relaxations = 8;
     // Root RENS neighborhood: fix root-integral columns and restrict every
     // other integer column to its adjacent integer values, then solve one
     // LP. It only proposes an incumbent and remains opt-in until benchmarked.
@@ -121,6 +126,7 @@ struct MilpSolution {
     std::uint64_t root_integer_coefficient_rounding_cuts = 0;
     std::uint64_t incumbent_updates = 0;
     std::uint64_t diving_heuristic_lp_relaxations = 0;
+    std::uint64_t feasibility_pump_lp_relaxations = 0;
     std::uint64_t rens_heuristic_lp_relaxations = 0;
     std::uint64_t local_improvement_lp_relaxations = 0;
 

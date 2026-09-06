@@ -138,6 +138,8 @@ int main(int argc, char** argv) {
     const std::uint64_t warm_basis_cap = argc > 10 ? std::stoull(argv[10]) : 50000;
     const bool enable_rens = argc > 11 && std::string(argv[11]) == "on";
     const bool enable_coefficient_rounding = argc > 12 && std::string(argv[12]) == "on";
+    const bool enable_feasibility_pump = argc > 13 && std::string(argv[13]) == "on";
+    const bool enable_rounding_heuristic = !(argc > 14 && std::string(argv[14]) == "off");
     if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
@@ -168,13 +170,15 @@ int main(int argc, char** argv) {
               << " warm_basis_cap=" << warm_basis_cap
               << " rens=" << (enable_rens ? "on" : "off")
               << " coefficient_rounding=" << (enable_coefficient_rounding ? "on" : "off")
+              << " feasibility_pump=" << (enable_feasibility_pump ? "on" : "off")
+              << " rounding=" << (enable_rounding_heuristic ? "on" : "off")
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
               << std::setw(12) << "abs_error" << std::setw(10) << "nodes" << std::setw(10)
               << "LPs" << std::setw(10) << "seconds" << std::setw(10) << "cpu_s"
               << std::setw(9) << "CPU%" << std::setw(12) << "RSS_MB" << std::setw(12)
-              << "GPU_MB" << std::setw(8) << "cuts" << std::setw(8) << "coef" << std::setw(8) << "gcd"
+              << "GPU_MB" << std::setw(8) << "cuts" << std::setw(8) << "coef" << std::setw(8) << "fp" << std::setw(8) << "gcd"
               << std::setw(8) << "prop" << std::setw(8) << "rhs" << std::setw(12)
               << "best_bound"
               << std::setw(10) << "gap" << std::setw(10) << "warm" << std::setw(10)
@@ -196,11 +200,12 @@ int main(int argc, char** argv) {
             const auto problem = sihps::milp_problem_from_mps(model);
             sihps::MilpSolverOptions options;
             options.time_limit_seconds = time_limit;
-            options.use_rounding_heuristic = true;
+            options.use_rounding_heuristic = enable_rounding_heuristic;
             options.enable_root_gmi_cuts = enable_gmi;
             options.max_pending_warm_start_bases = warm_basis_cap;
             options.use_rens_heuristic = enable_rens;
             options.enable_root_integer_coefficient_rounding_cuts = enable_coefficient_rounding;
+            options.use_feasibility_pump = enable_feasibility_pump;
             options.warm_start_node_relaxations = warm_start;
             if (parallel_mode == "serial") {
                 options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
@@ -306,6 +311,7 @@ int main(int argc, char** argv) {
                       << std::setw(12) << rss_mb << std::setw(12) << gpu_before_mb << " -> "
                       << std::setw(8) << gpu_after_mb << std::setw(8) << result.cover_cuts
                       << std::setw(8) << result.root_integer_coefficient_rounding_cuts
+                      << std::setw(8) << result.feasibility_pump_lp_relaxations
                       << std::setw(8) << result.integer_gcd_prunes
                       << std::setw(8) << result.integer_propagation_prunes
                       << std::setw(8) << result.integer_rhs_tightenings
