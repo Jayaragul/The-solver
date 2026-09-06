@@ -34,3 +34,12 @@ and solved up to three restricted LPs. On the same 10-second release protocol,
 remained at **-4762.7873726** (baseline -4762.7873726) and processed more
 nodes (34,042 versus 28,243). It therefore supplied no incumbent or
 certification improvement and was removed from the default solver.
+
+## Nonnegative lattice-rounding cuts — rejected
+
+For fractional-coefficient, nonnegative integer rows, a prototype rounded
+coefficients directionally after scaling by `10^6`. On `gen-ip002` with the
+same 10-second release protocol it generated **zero** violated cuts, retained
+the incumbent **-4762.7873726**, and processed 41,974 nodes versus the
+28,243-node baseline. The prototype was removed; no numerical or benchmark
+claim is made for it.
