@@ -1021,6 +1021,47 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
     };
 
+    const auto attempt_rens = [&](const LpSolution& starting,
+                                  const std::vector<double>& starting_lower,
+                                  const std::vector<double>& starting_upper) {
+        if (!options.use_rens_heuristic || std::isfinite(incumbent) ||
+            integral_point(problem, starting.x, options.integrality_tolerance)) {
+            return;
+        }
+        std::vector<double> restricted_lower = starting_lower;
+        std::vector<double> restricted_upper = starting_upper;
+        for (std::int32_t j = 0; j < problem.n_cols(); ++j) {
+            const auto jj = static_cast<std::size_t>(j);
+            if (problem.variable_types[jj] == VariableType::CONTINUOUS) continue;
+            const double value = starting.x[jj];
+            if (!std::isfinite(value)) return;
+            const double floor_value = std::floor(value);
+            const double ceil_value = std::ceil(value);
+            if (value - floor_value <= options.integrality_tolerance ||
+                ceil_value - value <= options.integrality_tolerance) {
+                const double fixed = std::round(value);
+                restricted_lower[jj] = std::max(restricted_lower[jj], fixed);
+                restricted_upper[jj] = std::min(restricted_upper[jj], fixed);
+            } else {
+                restricted_lower[jj] = std::max(restricted_lower[jj], floor_value);
+                restricted_upper[jj] = std::min(restricted_upper[jj], ceil_value);
+            }
+        }
+        if (!bounds_are_valid(restricted_lower, restricted_upper)) return;
+        LpProblem restricted = workspace;
+        restricted.lower = std::move(restricted_lower);
+        restricted.upper = std::move(restricted_upper);
+        auto rens_options = relaxation_options;
+        apply_remaining_lp_budget(rens_options);
+        ++solution.lp_relaxations;
+        ++solution.rens_heuristic_lp_relaxations;
+        const LpSolution result = solve_lp(restricted, rens_options);
+        if (result.status == LpStatus::OPTIMAL &&
+            result.x.size() == static_cast<std::size_t>(problem.n_cols())) {
+            consider_incumbent(result.x, starting_lower, starting_upper);
+        }
+    };
+
     const auto attempt_local_improvement = [&](const std::vector<double>& node_lower,
                                                const std::vector<double>& node_upper) {
         if (!options.use_local_improvement || options.local_improvement_passes == 0 ||
@@ -1293,6 +1334,15 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         }
 
         if (candidate_integral) continue;
+
+        if (node->depth == 0 && !std::isfinite(incumbent)) {
+            attempt_rens(relaxation, lower, upper);
+            if (timed_out()) {
+                open.push(node);
+                solution.status = MilpStatus::TIME_LIMIT;
+                break;
+            }
+        }
 
         // Dive at the root and at only the first few levels when no
         // incumbent exists. Repeating a failed dive at every deep node can

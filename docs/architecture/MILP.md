@@ -190,7 +190,11 @@ std::vector<Constraint> break_symmetry(const std::vector<SymmetryGroup>& declare
 The implementation includes a safe rounding heuristic: integer variables are
 rounded and the resulting point is accepted only after a fresh original-model
 feasibility and integrality check. A failed heuristic never changes the
-search state. RENS, feasibility pump, and diving heuristics remain deferred.
+search state. LP diving and local improvement are enabled under bounded work
+limits. Root RENS is implemented as one restricted-LP experiment behind
+`use_rens_heuristic`; its first MIPLIB gate is negative, so it is disabled by
+default (`bench/results/MIPLIB_RENS_ABLATION_10S.md`). Feasibility pump remains
+deferred.
 Incumbent management is a single global best-solution record, single-writer,
 with no concurrency primitives; the B&B control loop is single-threaded.
 

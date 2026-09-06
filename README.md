@@ -301,7 +301,7 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by 151 C++/CUDA unit tests
+   SpMV/PDHG/QP paths are implemented and covered by 152 C++/CUDA unit tests
    plus 28 native C smoke tests.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.

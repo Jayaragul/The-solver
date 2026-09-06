@@ -33,10 +33,11 @@ does not treat README claims as benchmark evidence.
 
 ## Decision
 
-The best ideas were adopted selectively: guarded GMI is implemented as an
-opt-in experiment, while exact binary split, RENS, and parallel B&B remain
-separate measured candidates. The GMI gate is currently negative at 10 seconds
-on `gen-ip002`, `gen-ip054`, and `markshare2`, so it remains off by default;
-see [`MIPLIB_GMI_ABLATION_10S.md`](../results/MIPLIB_GMI_ABLATION_10S.md).
+The best ideas were adopted selectively: guarded GMI and root RENS are
+implemented as opt-in experiments, while exact binary split and parallel B&B
+remain separate measured candidates. Both current gates are negative at 10
+seconds, so neither is enabled by default; see
+[`MIPLIB_GMI_ABLATION_10S.md`](../results/MIPLIB_GMI_ABLATION_10S.md) and
+[`MIPLIB_RENS_ABLATION_10S.md`](../results/MIPLIB_RENS_ABLATION_10S.md).
 This preserves the repository's rule that a new lever must improve a declared
 benchmark KPI before becoming production behavior.

@@ -768,3 +768,18 @@ SIHPS_TEST(milp_warm_start_basis_cap_preserves_certificate) {
     SIHPS_ASSERT_NEAR(result.objective_value, baseline.objective_value, 1e-8);
     SIHPS_ASSERT_TRUE(result.warm_start_basis_cap_skips >= 1);
 }
+
+SIHPS_TEST(milp_opt_in_rens_neighborhood_preserves_certificate) {
+    MilpSolverOptions baseline_options;
+    baseline_options.use_rounding_heuristic = false;
+    baseline_options.enable_root_cover_cuts = false;
+    const auto baseline = sihps::solve_milp(binary_knapsack(), baseline_options);
+
+    MilpSolverOptions rens_options = baseline_options;
+    rens_options.use_rens_heuristic = true;
+    const auto result = sihps::solve_milp(binary_knapsack(), rens_options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, baseline.objective_value, 1e-8);
+    SIHPS_ASSERT_EQ(result.rens_heuristic_lp_relaxations, 1);
+}

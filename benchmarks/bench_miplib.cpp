@@ -136,6 +136,7 @@ int main(int argc, char** argv) {
     const std::uint32_t repetitions = argc > 8 ? std::stoul(argv[8]) : 1;
     const bool enable_gmi = argc > 9 && std::string(argv[9]) == "on";
     const std::uint64_t warm_basis_cap = argc > 10 ? std::stoull(argv[10]) : 50000;
+    const bool enable_rens = argc > 11 && std::string(argv[11]) == "on";
     if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
@@ -164,6 +165,7 @@ int main(int argc, char** argv) {
               << " repetitions=" << repetitions
               << " gmi=" << (enable_gmi ? "on" : "off")
               << " warm_basis_cap=" << warm_basis_cap
+              << " rens=" << (enable_rens ? "on" : "off")
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -195,6 +197,7 @@ int main(int argc, char** argv) {
             options.use_rounding_heuristic = true;
             options.enable_root_gmi_cuts = enable_gmi;
             options.max_pending_warm_start_bases = warm_basis_cap;
+            options.use_rens_heuristic = enable_rens;
             options.warm_start_node_relaxations = warm_start;
             if (parallel_mode == "serial") {
                 options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;

@@ -46,6 +46,10 @@ struct MilpSolverOptions {
     bool use_diving_heuristic = true;
     std::uint32_t diving_max_depth = 32;
     std::uint32_t diving_max_lp_relaxations = 64;
+    // Root RENS neighborhood: fix root-integral columns and restrict every
+    // other integer column to its adjacent integer values, then solve one
+    // LP. It only proposes an incumbent and remains opt-in until benchmarked.
+    bool use_rens_heuristic = false;
     bool use_local_improvement = true;
     std::uint32_t local_improvement_passes = 3;
     std::uint32_t local_improvement_max_trials = 128;
@@ -110,6 +114,7 @@ struct MilpSolution {
     std::uint64_t root_integer_rounding_cuts = 0;
     std::uint64_t incumbent_updates = 0;
     std::uint64_t diving_heuristic_lp_relaxations = 0;
+    std::uint64_t rens_heuristic_lp_relaxations = 0;
     std::uint64_t local_improvement_lp_relaxations = 0;
 
     // Populated only when warm_start_node_relaxations is true: how many
