@@ -251,6 +251,8 @@ with 9/19 exact certified objectives in the 60-second release protocol. The
 older five-instance record remains available as [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md);
 the stricter absolute-tolerance sweep and every retained limit are recorded in
 [MILP_INCUMBENT_TOLERANCES](bench/results/MILP_INCUMBENT_TOLERANCES.md).
+Rejected MILP optimizations are retained as controlled ablations, including
+the root-cut-round experiment in [MILP_ROOT_CUT_ROUNDS](bench/results/MILP_ROOT_CUT_ROUNDS.md).
 
 The focused cover-cut ablation is recorded in
 [MILP_COVER_CUT](bench/results/MILP_COVER_CUT.md); it measures the bundled

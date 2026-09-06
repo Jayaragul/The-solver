@@ -1,0 +1,27 @@
+# Root cut-round ablation — rejected
+
+Date: 2026-09-06
+
+This is a controlled ablation of repeated root separation. The experiment
+allowed up to four rounds of the existing validity-guarded cover and integer
+rounding separators, then re-solved the root relaxation after each round. No
+new cut family or numerical tolerance was introduced. The 31 MILP-focused
+tests passed before the benchmark run.
+
+## `markshare2`, 10-second native release run
+
+| configuration | cuts | nodes | incumbent | best bound | gap |
+|---|---:|---:|---:|---:|---:|
+| single root round (baseline) | 2 | 120,012 | 231 | 0 | 0.99568966 |
+| up to four root rounds | 7 | 76,289 | 549 | 0 | 0.99818182 |
+
+Command shape for both runs:
+
+```text
+bench_miplib data/miplib2017_small data/miplib2017_small/miplib2017-v36.solu markshare2 10 reliability on serial
+```
+
+The extra rounds reduced node count but made the incumbent worse. Under the
+project rule that an optimization must improve a declared end-to-end KPI
+without reducing solution quality, this change is **rejected** and the source
+tree remains on the single-round implementation.
