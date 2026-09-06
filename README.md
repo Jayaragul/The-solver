@@ -246,10 +246,11 @@ The focused anti-degeneracy follow-up is [NETLIB_DEGENERACY](bench/results/NETLI
 It records `cycle` and `modszk1` reaching independently measured HiGHS optima
 with the revised default refactor interval, while retaining two limits.
 
-The current native MILP record is [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md).
-With validated cover cuts it proves 3/5 small official MIPLIB instances within
-a fixed 20-second limit and retains the two time-limited cases with valid dual
-bounds.
+The current native MILP record is the 19-instance MIPLIB 2017 small sweep,
+with 9/19 exact certified objectives in the 60-second release protocol. The
+older five-instance record remains available as [MIPLIB classic 5](bench/results/MIPLIB_CLASSIC_5.md);
+the stricter absolute-tolerance sweep and every retained limit are recorded in
+[MILP_INCUMBENT_TOLERANCES](bench/results/MILP_INCUMBENT_TOLERANCES.md).
 
 The focused cover-cut ablation is recorded in
 [MILP_COVER_CUT](bench/results/MILP_COVER_CUT.md); it measures the bundled

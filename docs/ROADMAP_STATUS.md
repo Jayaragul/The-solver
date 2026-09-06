@@ -26,8 +26,9 @@ in this document is an estimate.
 | max | **25.066 s** (`stocfor3`) | JSONL |
 | total iterations | 255,144 | JSONL |
 | worst relative objective error | 5.779e-07 | JSONL |
-| MIPLIB 2017 subset (5 instances, 60s budget) certified | **1 / 5** | `reports/runs/2026-08-25/miplib-raw.txt` |
-| unit tests | 128 / 128 | `ctest` |
+| MIPLIB 2017 small subset (19 instances, 60s budget) certified | **9 / 19** | `README.md`, `bench/results/MIPLIB_CLASSIC_5.md` |
+| focused absolute-tolerance MIPLIB sweep (19 instances, 10s budget) | **6 / 19 exact**, remaining records explicit limits/mismatches | `bench/results/MILP_INCUMBENT_TOLERANCES.md` |
+| unit tests | 146 / 146 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
 
 `MEASURED`. Single process, nothing else running, build stamp
 `1afe5bfa` recorded in the JSONL header.
@@ -52,8 +53,8 @@ project came from measurements taken without recorded conditions (see
 | Instance hashing | `IMPLEMENTED` — FNV-1a 64 over file bytes |
 | Per-stage timers | `IMPLEMENTED` — `SimplexProfile`, 9 stages, `benchmarks/profile_simplex.cpp` |
 | Median / geometric mean / p95 summaries | `IMPLEMENTED` — `bench::summarize` |
-| Memory statistics | **NOT IMPLEMENTED** — peak RSS and peak VRAM are not captured |
-| Repeated-run support, median over runs | **NOT IMPLEMENTED** — each sweep runs once |
+| Memory statistics | `IMPLEMENTED` — Windows peak RSS, CUDA free/total VRAM, and per-run MIPLIB RSS are recorded |
+| Repeated-run support, median over runs | `IMPLEMENTED` — MIPLIB runner supports independent repetitions with median wall/CPU and max RSS |
 | Performance profile generation | **NOT IMPLEMENTED** |
 | Benchmark regression comparison | **NOT IMPLEMENTED** |
 | NVTX ranges | **NOT IMPLEMENTED** |
@@ -287,9 +288,10 @@ was measured end to end (`docs/architecture/LP.md` §8) and did not clear the
 KPI gate, so it ships off by default; the B&B exists but is not yet
 benchmark-ready, which is now the top item below.
 
-1. **Close the MILP benchmark gap.** 1/5 certified and 3/5 badly wrong
-   incumbents on the 5-instance MIPLIB set within a 60 s budget
-   (`reports/runs/2026-08-25/miplib-raw.txt`) is the real open MILP item —
+1. **Close the MILP benchmark gap.** The 19-instance MIPLIB sweep still has
+   explicit time limits and mismatches, despite 9/19 exact certified results
+   in the 60-second release protocol and 6/19 in the stricter 10-second
+   absolute-tolerance protocol. This remains the real open MILP item —
    ahead of any further cuts, heuristics, or symmetry work, none of which
    this measurement implicates *blindly*. Diagnosed (three independent
    passes: instance-difficulty research, cover-cut correctness audit,
@@ -308,14 +310,12 @@ benchmark-ready, which is now the top item below.
    candidates: Gomory/MIR cuts (apply to general-integer rows, unlike
    cover cuts), and separating cuts at more than one round/node — cuts
    currently fire once, at the root only, even when they do apply.
-2. **Peak RSS / VRAM capture and repeated-run medians** — the two Phase 0 gaps
-   that still let a regression hide.
-3. **Generated adversarial LPs + Compute Sanitizer** — Phase 1's real
+2. **Generated adversarial LPs + Compute Sanitizer** — Phase 1's real
    acceptance criteria, currently only argued from Netlib.
-4. **Hyper-sparse FTRAN** (BTRAN is now done — `docs/architecture/LP.md`
+3. **Hyper-sparse FTRAN** (BTRAN is now done — `docs/architecture/LP.md`
    §9), then Markowitz/AMD ordering and presolve expansion.
-5. Feasibility polishing for the six stalling PDLP instances.
-6. Layer D refinery generator — without it, no refinery claim is admissible.
+4. Feasibility polishing for the six stalling PDLP instances.
+5. Layer D refinery generator — without it, no refinery claim is admissible.
 
 The governing rule stands: *no optimization is accepted unless it improves a
 declared benchmark KPI without reducing correctness or solvability.* Two changes
