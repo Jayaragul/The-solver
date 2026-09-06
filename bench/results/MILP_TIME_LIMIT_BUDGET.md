@@ -21,3 +21,8 @@ parallel policy, and a 10-second limit:
 
 The focused MILP suite passes **32/32**, including
 `milp_time_limit_is_not_reported_as_numerical_failure`.
+
+After the fix, the full 19-instance production-style sweep (pseudocost,
+warm-started, automatic parallel mode, 10-second limit) completed with sane
+telemetry and **9/19 certified** results. Raw output is retained in
+[`MIPLIB_PSEUDO_AUTO_SWEEP_10S.txt`](MIPLIB_PSEUDO_AUTO_SWEEP_10S.txt).
