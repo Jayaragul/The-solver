@@ -10,6 +10,7 @@ add_executable(sihps_tests
   lp/test_basis_factorization.cpp
   lp/test_pdlp.cpp
   lp/test_first_order_pipeline.cpp
+  lp/test_generated_adversarial.cpp
   lp/test_presolve.cpp
   lp/test_scaling.cpp
   lp/test_simplex.cpp

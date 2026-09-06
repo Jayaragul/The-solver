@@ -28,7 +28,7 @@ in this document is an estimate.
 | worst relative objective error | 5.779e-07 | JSONL |
 | MIPLIB 2017 small subset (19 instances, 60s budget) certified | **9 / 19** | `README.md`, `bench/results/MIPLIB_CLASSIC_5.md` |
 | focused MIPLIB branching sweep (19 instances, 10s budget) | **9 / 19 exact with pseudocost** vs 6 / 19 reliability | `bench/results/MIPLIB_BRANCHING_PSEUDOCOST.md` |
-| unit tests | 147 / 147 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
+| unit tests | 148 / 148 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
 
 `MEASURED`. Single process, nothing else running, build stamp
 `1afe5bfa` recorded in the JSONL header.
@@ -73,14 +73,15 @@ only, and not across runs.
 | Presolve on/off differential testing | `IMPLEMENTED` — `validate_netlib … nopresolve` |
 | CPU/GPU differential testing | `IMPLEMENTED` — bit-identical assertions across thread counts and backends |
 | Determinism under fixed configuration | `MEASURED` — exact-equality tests, including PDLP |
-| Random / ill-conditioned / degenerate LP generators | **NOT IMPLEMENTED** |
+| Random / ill-conditioned / degenerate LP generators | `IMPLEMENTED`, `MEASURED` — deterministic scaled sparse regression; `bench/results/GENERATED_ADVERSARIAL_LP.md` |
 | MPS and sparse-structure fuzzing | **NOT IMPLEMENTED** |
 | Compute Sanitizer in CI | **NOT IMPLEMENTED** — never run |
 | Brute-force checker for tiny MILPs | **NOT APPLICABLE YET** — no MILP engine |
 
-`KNOWN LIMITATION`: "no false INFEASIBLE" and "no false UNBOUNDED" are asserted
-against the Netlib infeasible set (28/0/1) and the feasible set, not against
-generated adversarial cases. That is weaker evidence than the roadmap asks for.
+`MEASURED`: generated adversarial LP coverage now includes deterministic sparse,
+ill-conditioned coefficient scales from `1e-6` through `1e6`, with known-feasible
+bounded instances and original-space residual checks. MPS/sparse-structure
+fuzzing and Compute Sanitizer remain open Phase 1 work.
 
 ---
 
@@ -135,7 +136,7 @@ code.** `src/milp/MilpProblem.{hpp,cpp}` and `src/milp/MilpSolver.{hpp,cpp}`
 exist: best-bound branch-and-bound, reliability branching (with
 strong-branching probes and pseudocost fallback), root-only mixed-row cover
 cuts (`docs/architecture/MILP.md` §2), a safe rounding heuristic, LP diving,
-and local improvement. 147/147 C++/CUDA unit tests plus 28 native C smoke
+and local improvement. 148/148 C++/CUDA unit tests plus 28 native C smoke
 tests pass, including MILP-specific
 brute-forceable cases (tiny integer optima, infeasibility proofs, node-limit
 handling, cover-cut validity) and the warm-start differential tests above.
@@ -310,8 +311,8 @@ benchmark-ready, which is now the top item below.
    candidates: Gomory/MIR cuts (apply to general-integer rows, unlike
    cover cuts), and separating cuts at more than one round/node — cuts
    currently fire once, at the root only, even when they do apply.
-2. **Generated adversarial LPs + Compute Sanitizer** — Phase 1's real
-   acceptance criteria, currently only argued from Netlib.
+2. **MPS/sparse-structure fuzzing + Compute Sanitizer** — generated scaled
+   sparse LPs are now covered; parser fuzzing and sanitizer runs remain.
 3. **Hyper-sparse FTRAN** (BTRAN is now done — `docs/architecture/LP.md`
    §9), then Markowitz/AMD ordering and presolve expansion.
 4. Feasibility polishing for the six stalling PDLP instances.
