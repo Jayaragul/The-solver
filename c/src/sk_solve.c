@@ -592,7 +592,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     double *activity = NULL, *gradient = NULL, *qx = NULL, *qdiag = NULL;
     double *tau_vec = NULL, *sigma_vec = NULL;
     double anorm, qnorm, start;
-    int iteration, converged = 0;
+    int iteration, performed_iterations = 0, converged = 0;
     double dual_step = INFINITY;
 
     if (!m || !s || n < 0 || r < 0 || !m->c || !m->clow || !m->cupp ||
@@ -721,6 +721,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         }
     }
 
+    performed_iterations = iteration > maximum_iterations ? maximum_iterations : iteration;
     if (m->Q) qp_active_polish(m, x, y);
 
     sk_solution_init(s);
@@ -732,7 +733,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
        last executed step.  Expose the actual work count in the public result
        (and benchmark JSON), while preserving the terminating iteration for
        convergence/time-limit exits. */
-    s->iterations = iteration > maximum_iterations ? maximum_iterations : iteration;
+    s->iterations = performed_iterations;
     s->solve_seconds = sk_wall_seconds() - start;
     if (m->Q) {
         if (qdiag) for (iteration = 0; iteration < n; ++iteration) qx[iteration] = qdiag[iteration] * s->x[iteration];
