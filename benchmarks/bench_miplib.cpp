@@ -133,6 +133,8 @@ int main(int argc, char** argv) {
     // ablation. The legacy "on" spelling remains accepted.
     const bool warm_start = !(argc > 6 && std::string(argv[6]) == "off");
     const std::string parallel_mode = argc > 7 ? argv[7] : "auto";
+    const std::uint32_t repetitions = argc > 8 ? std::stoul(argv[8]) : 1;
+    if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
 
@@ -157,6 +159,7 @@ int main(int argc, char** argv) {
     std::cout << "time_limit_seconds=" << time_limit << " branching_rule=" << branching_rule
               << " warm_start=" << (warm_start ? "on" : "off")
               << " parallel_mode=" << parallel_mode
+              << " repetitions=" << repetitions
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -202,25 +205,54 @@ int main(int argc, char** argv) {
                 throw std::invalid_argument("branching rule must be reliability, pseudocost, or most");
             }
 
-            const ResourceSnapshot before = resources();
-            const auto start = std::chrono::steady_clock::now();
-            const auto result = sihps::solve_milp(problem, options);
-            const double seconds =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-            const ResourceSnapshot after = resources();
-            const double cpu_seconds = std::max(0.0, after.cpu_seconds - before.cpu_seconds);
+            std::vector<double> wall_samples;
+            std::vector<double> cpu_samples;
+            wall_samples.reserve(repetitions);
+            cpu_samples.reserve(repetitions);
+            sihps::MilpSolution result;
+            long peak_rss_kb = 0;
+            double gpu_before_mb = 0.0;
+            double gpu_after_mb = 0.0;
+            bool repeat_consistent = true;
+            for (std::uint32_t run = 0; run < repetitions; ++run) {
+                const ResourceSnapshot before = resources();
+                const auto start = std::chrono::steady_clock::now();
+                const auto current = sihps::solve_milp(problem, options);
+                const double seconds = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - start).count();
+                const ResourceSnapshot after = resources();
+                wall_samples.push_back(seconds);
+                cpu_samples.push_back(std::max(0.0, after.cpu_seconds - before.cpu_seconds));
+                peak_rss_kb = std::max(peak_rss_kb, after.peak_rss_kb);
+                if (run == 0) {
+                    gpu_before_mb = before.gpu_available
+                                        ? static_cast<double>(before.gpu_total_bytes -
+                                                              before.gpu_free_bytes) /
+                                              (1024.0 * 1024.0)
+                                        : 0.0;
+                }
+                gpu_after_mb = after.gpu_available
+                                   ? static_cast<double>(after.gpu_total_bytes -
+                                                         after.gpu_free_bytes) /
+                                         (1024.0 * 1024.0)
+                                   : 0.0;
+                if (run > 0 && (current.status != result.status ||
+                                current.has_incumbent != result.has_incumbent ||
+                                (current.has_incumbent &&
+                                 std::fabs(current.objective_value - result.objective_value) >
+                                     kObjectiveTolerance))) {
+                    repeat_consistent = false;
+                }
+                result = current;
+            }
+            const auto median = [](std::vector<double> values) {
+                std::sort(values.begin(), values.end());
+                return values[values.size() / 2];
+            };
+            const double seconds = median(wall_samples);
+            const double cpu_seconds = median(cpu_samples);
             const double cpu_utilization = seconds > 1e-9 ? 100.0 * cpu_seconds / seconds : 0.0;
-            const double rss_mb = static_cast<double>(after.peak_rss_kb) / 1024.0;
-            const double gpu_before_mb = before.gpu_available
-                                             ? static_cast<double>(before.gpu_total_bytes -
-                                                                   before.gpu_free_bytes) /
-                                                   (1024.0 * 1024.0)
-                                             : 0.0;
-            const double gpu_after_mb = after.gpu_available
-                                            ? static_cast<double>(after.gpu_total_bytes -
-                                                                  after.gpu_free_bytes) /
-                                                  (1024.0 * 1024.0)
-                                            : 0.0;
+            const double rss_mb = static_cast<double>(peak_rss_kb) / 1024.0;
 
             const Reference& reference = reference_it->second;
             const bool status_match =
@@ -231,7 +263,7 @@ int main(int argc, char** argv) {
                                      : std::numeric_limits<double>::infinity();
             const bool objective_match = reference.status == "INFEASIBLE" ||
                                          (result.has_incumbent && error <= kObjectiveTolerance);
-            const bool exact = status_match && objective_match;
+            const bool exact = status_match && objective_match && repeat_consistent;
             if (objective_match && reference.status == "OPTIMAL") ++incumbent_matches;
             if (result.status == sihps::MilpStatus::OPTIMAL ||
                 result.status == sihps::MilpStatus::INFEASIBLE) {
@@ -246,7 +278,9 @@ int main(int argc, char** argv) {
                                       ? "EXACT"
                                       : (reference.status == "BEST"
                                              ? "NOT_CERTIFIED"
-                                             : (objective_match ? "INCUMBENT_ONLY" : "MISMATCH"));
+                                             : (objective_match && repeat_consistent
+                                                    ? "INCUMBENT_ONLY"
+                                                    : "MISMATCH"));
             std::cout << std::left << std::setw(18) << name << std::right << std::setw(12)
                       << status_name(result.status) << std::setw(18) << std::setprecision(12)
                       << (result.has_incumbent ? result.objective_value : 0.0) << " "
@@ -266,7 +300,7 @@ int main(int argc, char** argv) {
                       << std::setw(10) << result.relative_gap << std::setw(10)
                       << result.warm_started_relaxations << std::setw(10)
                       << result.warm_start_verification_fallbacks << std::right
-                      << "  " << verdict
+                      << "  " << verdict << (repeat_consistent ? "" : " [REPEAT_VARIANCE]")
                       << '\n';
         } catch (const std::exception& error) {
             ++mismatches;

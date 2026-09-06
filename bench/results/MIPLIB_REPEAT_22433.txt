@@ -1,0 +1,10 @@
+time_limit_seconds=5 branching_rule=reliability warm_start=on parallel_mode=serial repetitions=3 gpu_available=yes
+instance                status              ours         reference   abs_error     nodes       LPs   seconds     cpu_s     CPU%      RSS_MB      GPU_MB    cuts     gcd    prop     rhs  best_bound       gap      warm   warm_fb  verdict
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+22433               TIME_LIMIT                 0              21477            0          7        97     5.031     4.656   92.556     183.293     795.800 ->  795.800       0       0       0       021318.22364341        inf         4         0  MISMATCH [REPEAT_VARIANCE]
+
+Exact reference matches: 0/1
+Optimal-objective incumbent matches: 0/1
+Certified solver results: 0/1
+Time/node-limit results: 1/1
+Mismatches or non-exact results: 1/1

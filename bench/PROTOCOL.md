@@ -12,6 +12,10 @@
 8. Every claimed LP optimum must pass an independent primal-dual certificate.
 9. Record status, objective, residuals, iterations/nodes, time, and peak memory.
 10. Any disagreement is listed per instance; timeouts and failures are never hidden.
+11. `bench_miplib` accepts an optional final repetition count. Values above one
+    run independent solves and report median wall/CPU time, maximum peak RSS,
+    and a `REPEAT_VARIANCE` marker if status or incumbent objective changes.
+    A median is never treated as a certification proof.
 
 ## Native collection command
 
