@@ -25,3 +25,12 @@ The extra rounds reduced node count but made the incumbent worse. Under the
 project rule that an optimization must improve a declared end-to-end KPI
 without reducing solution quality, this change is **rejected** and the source
 tree remains on the single-round implementation.
+
+## RENS-style incumbent heuristic — rejected
+
+A second controlled experiment fixed integer variables near their LP values
+and solved up to three restricted LPs. On the same 10-second release protocol,
+`markshare2` remained at incumbent **231** (baseline 231) while `gen-ip002`
+remained at **-4762.7873726** (baseline -4762.7873726) and processed more
+nodes (34,042 versus 28,243). It therefore supplied no incumbent or
+certification improvement and was removed from the default solver.
