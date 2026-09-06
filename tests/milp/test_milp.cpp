@@ -78,6 +78,7 @@ SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
     MilpSolverOptions options;
     options.use_rounding_heuristic = false;
     options.enable_root_cover_cuts = false;
+    options.branching_rule = sihps::MilpBranchingRule::RELIABILITY;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
@@ -95,6 +96,7 @@ SIHPS_TEST(milp_parallel_strong_branching_preserves_certificate) {
     MilpSolverOptions serial_options;
     serial_options.use_rounding_heuristic = false;
     serial_options.enable_root_cover_cuts = false;
+    serial_options.branching_rule = sihps::MilpBranchingRule::RELIABILITY;
     serial_options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;
     const auto serial = sihps::solve_milp(binary_knapsack(), serial_options);
 
@@ -415,6 +417,7 @@ SIHPS_TEST(milp_node_limit_is_not_reported_as_optimal) {
     options.node_limit = 1;
     options.use_rounding_heuristic = false;
     options.enable_root_cover_cuts = false;
+    options.branching_rule = sihps::MilpBranchingRule::RELIABILITY;
     const auto result = sihps::solve_milp(binary_knapsack(), options);
 
     SIHPS_ASSERT_TRUE(result.status == MilpStatus::NODE_LIMIT);

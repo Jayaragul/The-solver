@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
     const fs::path solution_path = argc > 2 ? argv[2] : instance_dir / "miplib2017-v36.solu";
     const std::string selected_instance = argc > 3 ? argv[3] : "";
     const double time_limit = argc > 4 ? std::stod(argv[4]) : 60.0;
-    const std::string branching_rule = argc > 5 ? argv[5] : "reliability";
+    const std::string branching_rule = argc > 5 ? argv[5] : "pseudocost";
     // docs/architecture/LP.md \S1/\S2, MilpSolverOptions::
     // Warm starts are the production default; pass "off" for a cold-start
     // ablation. The legacy "on" spelling remains accepted.

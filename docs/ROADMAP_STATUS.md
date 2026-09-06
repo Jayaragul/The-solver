@@ -27,7 +27,7 @@ in this document is an estimate.
 | total iterations | 255,144 | JSONL |
 | worst relative objective error | 5.779e-07 | JSONL |
 | MIPLIB 2017 small subset (19 instances, 60s budget) certified | **9 / 19** | `README.md`, `bench/results/MIPLIB_CLASSIC_5.md` |
-| focused absolute-tolerance MIPLIB sweep (19 instances, 10s budget) | **6 / 19 exact**, remaining records explicit limits/mismatches | `bench/results/MILP_INCUMBENT_TOLERANCES.md` |
+| focused MIPLIB branching sweep (19 instances, 10s budget) | **9 / 19 exact with pseudocost** vs 6 / 19 reliability | `bench/results/MIPLIB_BRANCHING_PSEUDOCOST.md` |
 | unit tests | 146 / 146 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
 
 `MEASURED`. Single process, nothing else running, build stamp

@@ -1,0 +1,10 @@
+time_limit_seconds=10 branching_rule=pseudocost warm_start=on parallel_mode=serial repetitions=3 gpu_available=yes
+instance                status              ours         reference   abs_error     nodes       LPs   seconds     cpu_s     CPU%      RSS_MB      GPU_MB    cuts     gcd    prop     rhs  best_bound       gap      warm   warm_fb  verdict
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+gen-ip002           TIME_LIMIT     -4769.7405888       -4783.733392   13.9928032      31184     31184    10.027     8.797   87.729     199.656     795.800 ->  795.800       0       0       0       0-4815.84440176 0.00966387     31181         0  MISMATCH [REPEAT_VARIANCE]
+
+Exact reference matches: 0/1
+Optimal-objective incumbent matches: 0/1
+Certified solver results: 0/1
+Time/node-limit results: 1/1
+Mismatches or non-exact results: 1/1

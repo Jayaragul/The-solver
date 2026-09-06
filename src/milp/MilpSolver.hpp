@@ -49,7 +49,10 @@ struct MilpSolverOptions {
     bool use_local_improvement = true;
     std::uint32_t local_improvement_passes = 3;
     std::uint32_t local_improvement_max_trials = 128;
-    MilpBranchingRule branching_rule = MilpBranchingRule::RELIABILITY;
+    // Pseudocost is the measured production default: on the frozen 19-model
+    // MIPLIB sweep it certified 9/19 models in 10 seconds versus 6/19 for
+    // reliability branching. Reliability remains available for ablations.
+    MilpBranchingRule branching_rule = MilpBranchingRule::PSEUDOCOST;
     std::uint32_t reliability_threshold = 2;
     std::uint32_t strong_branching_candidates = 4;
     bool enable_root_cover_cuts = true;
