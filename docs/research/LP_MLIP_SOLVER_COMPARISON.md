@@ -48,3 +48,9 @@ The feasibility-pump gate is recorded in
 [`MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md`](../results/MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md).
 This preserves the repository's rule that a new lever must improve a declared
 benchmark KPI before becoming production behavior.
+
+The reference's exact binary meet-in-the-middle idea was also prototyped on
+`markshare2`. Its complete enumeration exceeded 90 seconds under a 2.5 GB
+budget on this laptop, so it was removed rather than exposed as an unbounded
+option. The negative result is recorded in
+[`MIPLIB_EXACT_BINARY_SPLIT_EXPERIMENT.md`](../results/MIPLIB_EXACT_BINARY_SPLIT_EXPERIMENT.md).
