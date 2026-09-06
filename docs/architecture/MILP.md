@@ -115,7 +115,7 @@ rather than trying to reconcile the two. This trades some node-local presolve
 reductions for substantially cheaper certified re-solves; the bound invariant
 is unaffected either way.
 
-## 2. Cuts (implemented root cover and integer-rounding families)
+## 2. Cuts (implemented root cover, integer-rounding, and guarded GMI families)
 
 The first cut implementation is deliberately narrow and auditable: root-only
 cover inequalities for rows with a finite upper activity bound and finite
@@ -130,9 +130,13 @@ are globally valid and remain active in descendants; they are generated once
 at the root and counted separately.
 
 General MIR and flow-cover strengthening for mixed rows remains a future
-extension. It requires a full row-bound transformation and independent
-validity tests before it can be enabled, so the current implementation does
-not claim that broader cut family.
+extension. A tableau-derived Gomory mixed-integer separator is now available
+behind `MilpSolverOptions::enable_root_gmi_cuts`; it applies only to terminal
+root rows with one-sided nonbasic bounds and rejects numerically unsafe rows
+(near-integral basic fractionality, tiny residual coefficients, excessive
+dynamic range, or coefficients too large relative to the model). It is an
+opt-in research lever, not a production default: the frozen MIPLIB gate found
+no end-to-end gain at 10 seconds (`bench/results/MIPLIB_GMI_ABLATION_10S.md`).
 
 Rows whose nonzero coefficients and variables are all integral also receive a
 conservative rank-1 Chvatal-Gomory rounding cut when the fractional LP point
@@ -156,9 +160,9 @@ The numerical regression record is in
 ```cpp
 class CutManager {
 public:
-    // Current implementation: root-only cover and all-integer row-rounding
-    // separation. General MIR/flow-cover strengthening is intentionally not
-    // implied here.
+    // Current implementation: root-only cover, all-integer row-rounding, and
+    // guarded opt-in GMI separation. General MIR/flow-cover strengthening is
+    // intentionally not implied here.
     std::vector<Cut> separate(const LPResult& fractional_solution);
 };
 ```

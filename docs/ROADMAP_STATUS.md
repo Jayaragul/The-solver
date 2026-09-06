@@ -28,7 +28,7 @@ in this document is an estimate.
 | worst relative objective error | 5.779e-07 | JSONL |
 | MIPLIB 2017 small subset (19 instances, 60s budget) certified | **9 / 19** | `README.md`, `bench/results/MIPLIB_CLASSIC_5.md` |
 | focused MIPLIB branching sweep (19 instances, 10s budget) | **9 / 19 exact with pseudocost** vs 6 / 19 reliability | `bench/results/MIPLIB_BRANCHING_PSEUDOCOST.md` |
-| unit tests | 148 / 148 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
+| unit tests | 150 / 150 C++/CUDA plus 28 native C smoke tests | `ctest` / native smoke suite |
 
 `MEASURED`. Single process, nothing else running, build stamp
 `1afe5bfa` recorded in the JSONL header.
@@ -135,8 +135,9 @@ next.
 code.** `src/milp/MilpProblem.{hpp,cpp}` and `src/milp/MilpSolver.{hpp,cpp}`
 exist: best-bound branch-and-bound, reliability branching (with
 strong-branching probes and pseudocost fallback), root-only mixed-row cover
-cuts (`docs/architecture/MILP.md` §2), a safe rounding heuristic, LP diving,
-and local improvement. 148/148 C++/CUDA unit tests plus 28 native C smoke
+   cuts (`docs/architecture/MILP.md` §2), an opt-in numerically guarded GMI
+   separator, a safe rounding heuristic, LP diving, and local improvement.
+   150/150 C++/CUDA unit tests plus 28 native C smoke
 tests pass, including MILP-specific
 brute-forceable cases (tiny integer optima, infeasibility proofs, node-limit
 handling, cover-cut validity) and the warm-start differential tests above.
@@ -307,10 +308,12 @@ benchmark-ready, which is now the top item below.
    real, fixable reason: all three generate **zero** cover cuts (`gen-ip*`
    have no binary variables at all — cover-cut separation only targets
    binary-domain knapsack rows, by construction; `pk1`'s precedence-shaped
-   constraints don't trigger the cover condition either). Concrete next
-   candidates: Gomory/MIR cuts (apply to general-integer rows, unlike
-   cover cuts), and separating cuts at more than one round/node — cuts
-   currently fire once, at the root only, even when they do apply.
+   constraints don't trigger the cover condition either). Tableau GMI cuts
+   are now implemented as an opt-in experiment, but the 10-second gate found
+   no production gain (`bench/results/MIPLIB_GMI_ABLATION_10S.md`). Concrete
+   next candidates are MIR/flow-cover cuts and separating cuts at more than
+   one round/node — cuts currently fire once, at the root only, even when
+   they do apply.
 2. **MPS/sparse-structure fuzzing + Compute Sanitizer** — generated scaled
    sparse LPs are now covered; parser fuzzing and sanitizer runs remain.
 3. **Hyper-sparse FTRAN** (BTRAN is now done — `docs/architecture/LP.md`

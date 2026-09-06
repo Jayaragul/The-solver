@@ -234,6 +234,22 @@ public:
     // drifted intermediate one).
     Basis export_basis() const;
 
+    // Tableau inspection is used by the optional root-cut separator. These
+    // read-only views expose basis geometry without allowing callers to
+    // mutate simplex state.
+    std::int32_t n_total() const { return n_total_; }
+    std::int32_t basic_row_of(std::int32_t var) const {
+        return basic_row_of_[static_cast<std::size_t>(var)];
+    }
+    VarStatus status_of(std::int32_t var) const {
+        return status_[static_cast<std::size_t>(var)];
+    }
+    std::vector<double> tableau_row(std::int32_t row) const {
+        std::vector<double> rho;
+        compute_tableau_row(row, rho);
+        return rho;
+    }
+
     explicit Simplex(const LpProblem& problem, PricingBackend backend = PricingBackend::CPU,
                       bool use_ruiz_scaling = true,
                       PricingRule pricing_rule = PricingRule::DEVEX,

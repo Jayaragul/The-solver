@@ -134,6 +134,7 @@ int main(int argc, char** argv) {
     const bool warm_start = !(argc > 6 && std::string(argv[6]) == "off");
     const std::string parallel_mode = argc > 7 ? argv[7] : "auto";
     const std::uint32_t repetitions = argc > 8 ? std::stoul(argv[8]) : 1;
+    const bool enable_gmi = argc > 9 && std::string(argv[9]) == "on";
     if (repetitions == 0) throw std::invalid_argument("repetitions must be positive");
 
     std::cout << std::unitbuf;
@@ -160,6 +161,7 @@ int main(int argc, char** argv) {
               << " warm_start=" << (warm_start ? "on" : "off")
               << " parallel_mode=" << parallel_mode
               << " repetitions=" << repetitions
+              << " gmi=" << (enable_gmi ? "on" : "off")
               << " gpu_available=" << (process_start.gpu_available ? "yes" : "no") << '\n';
     std::cout << std::left << std::setw(18) << "instance" << std::right << std::setw(12)
               << "status" << std::setw(18) << "ours" << std::setw(18) << "reference"
@@ -189,6 +191,7 @@ int main(int argc, char** argv) {
             sihps::MilpSolverOptions options;
             options.time_limit_seconds = time_limit;
             options.use_rounding_heuristic = true;
+            options.enable_root_gmi_cuts = enable_gmi;
             options.warm_start_node_relaxations = warm_start;
             if (parallel_mode == "serial") {
                 options.lp_options.parallel_mode = sihps::ParallelMode::SERIAL;

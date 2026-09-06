@@ -344,6 +344,12 @@ struct IntegerRoundingCut {
     double rhs = 0.0;
 };
 
+struct GeneralCut {
+    std::vector<std::pair<std::int32_t, double>> terms;
+    char row_type = 'G';
+    double rhs = 0.0;
+};
+
 bool binary_domain(const MilpProblem& problem, const LpProblem& lp, std::int32_t variable) {
     const auto j = static_cast<std::size_t>(variable);
     if (problem.variable_types[j] == VariableType::BINARY) return true;
@@ -595,6 +601,152 @@ void append_integer_rounding_cuts(LpProblem& workspace,
     }
 }
 
+void append_general_cuts(LpProblem& workspace, const std::vector<GeneralCut>& cuts) {
+    const std::int32_t old_rows = workspace.n_rows();
+    std::size_t new_nnz = 0;
+    for (const GeneralCut& cut : cuts) new_nnz += cut.terms.size();
+    std::vector<Triplet> entries;
+    entries.reserve(static_cast<std::size_t>(workspace.A.nnz()) + new_nnz);
+    for (std::int32_t row = 0; row < old_rows; ++row) {
+        for (std::int32_t k = workspace.A.row_ptr()[row];
+             k < workspace.A.row_ptr()[row + 1]; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            entries.push_back({row, workspace.A.col_idx()[kk], workspace.A.values()[kk]});
+        }
+    }
+    for (std::size_t cut_index = 0; cut_index < cuts.size(); ++cut_index) {
+        const auto row = old_rows + static_cast<std::int32_t>(cut_index);
+        for (const auto& term : cuts[cut_index].terms) {
+            entries.push_back({row, term.first, term.second});
+        }
+    }
+    workspace.A = CSRMatrix::from_triplets(
+        old_rows + static_cast<std::int32_t>(cuts.size()), workspace.n_cols(), entries);
+    for (const GeneralCut& cut : cuts) {
+        workspace.rhs.push_back(cut.rhs);
+        workspace.row_types.push_back(cut.row_type);
+        if (cut.row_type == 'L') {
+            workspace.slack_lower.push_back(0.0);
+            workspace.slack_upper.push_back(kInfinityValue);
+        } else {
+            workspace.slack_lower.push_back(-kInfinityValue);
+            workspace.slack_upper.push_back(0.0);
+        }
+    }
+}
+
+// Numerically guarded Gomory mixed-integer cuts from the terminal root
+// tableau. The separator is deliberately opt-in: a cut is discarded when
+// its fractional row or coefficient scale is too close to floating-point
+// noise, so an optional strengthening can never compromise certification.
+std::vector<GeneralCut> separate_gmi_cuts(const MilpProblem& problem,
+                                          const LpProblem& workspace,
+                                          const Simplex& simplex,
+                                          const std::vector<double>& x,
+                                          double violation_tolerance,
+                                          std::uint32_t limit) {
+    constexpr double min_fractionality = 0.01;
+    constexpr double relative_zero = 1e-9;
+    constexpr double max_dynamic_range = 1e8;
+    constexpr double max_relative_magnitude = 1e4;
+    std::vector<GeneralCut> cuts;
+    const std::int32_t n = workspace.n_cols();
+    const std::int32_t m = workspace.n_rows();
+    double matrix_max = 0.0;
+    for (std::int32_t k = 0; k < workspace.A.nnz(); ++k) {
+        matrix_max = std::max(matrix_max, std::fabs(workspace.A.values()[k]));
+    }
+    if (matrix_max == 0.0) return cuts;
+    std::vector<double> coefficients(static_cast<std::size_t>(n), 0.0);
+
+    for (std::int32_t basic = 0; basic < n && cuts.size() < limit; ++basic) {
+        const auto bb = static_cast<std::size_t>(basic);
+        if (problem.variable_types[bb] == VariableType::CONTINUOUS) continue;
+        const std::int32_t row = simplex.basic_row_of(basic);
+        if (row < 0 || !std::isfinite(x[bb])) continue;
+        const double floor_value = std::floor(x[bb]);
+        const double f = x[bb] - floor_value;
+        if (f < min_fractionality || 1.0 - f < min_fractionality) continue;
+
+        std::fill(coefficients.begin(), coefficients.end(), 0.0);
+        double constant = 0.0;
+        bool reject = false;
+        const auto tableau = simplex.tableau_row(row);
+        for (std::int32_t j = 0; j < simplex.n_total() && !reject; ++j) {
+            if (j == basic) continue;
+            const double rho = tableau[static_cast<std::size_t>(j)];
+            if (rho == 0.0 || simplex.status_of(j) == Simplex::VarStatus::BASIC) continue;
+            const auto status = simplex.status_of(j);
+            if (status == Simplex::VarStatus::AT_ZERO) { reject = true; break; }
+            const bool at_lower = status == Simplex::VarStatus::AT_LOWER;
+            double bound = 0.0;
+            if (j < n) {
+                bound = at_lower ? workspace.lower[static_cast<std::size_t>(j)]
+                                 : workspace.upper[static_cast<std::size_t>(j)];
+            } else if (j < n + m) {
+                const auto r = static_cast<std::size_t>(j - n);
+                bound = at_lower ? workspace.slack_lower[r] : workspace.slack_upper[r];
+            } else {
+                continue;
+            }
+            if (!std::isfinite(bound)) { reject = true; break; }
+            const double bar = at_lower ? rho : -rho;
+            const bool integer = j < n &&
+                problem.variable_types[static_cast<std::size_t>(j)] != VariableType::CONTINUOUS;
+            const double fj = bar - std::floor(bar);
+            const double coefficient = integer
+                ? ((fj <= f) ? fj / f : (1.0 - fj) / (1.0 - f))
+                : ((bar >= 0.0) ? bar / f : -bar / (1.0 - f));
+            if (!std::isfinite(coefficient) || coefficient == 0.0) continue;
+            const double signed_coefficient = at_lower ? coefficient : -coefficient;
+            if (j < n) {
+                coefficients[static_cast<std::size_t>(j)] += signed_coefficient;
+                constant -= signed_coefficient * bound;
+            } else {
+                const std::int32_t source_row = j - n;
+                const auto rr = static_cast<std::size_t>(source_row);
+                constant += signed_coefficient * workspace.rhs[rr] - signed_coefficient * bound;
+                for (std::int32_t k = workspace.A.row_ptr()[source_row];
+                     k < workspace.A.row_ptr()[source_row + 1]; ++k) {
+                    const auto kk = static_cast<std::size_t>(k);
+                    coefficients[static_cast<std::size_t>(workspace.A.col_idx()[kk])] -=
+                        signed_coefficient * workspace.A.values()[kk];
+                }
+            }
+        }
+        if (reject) continue;
+        double row_max = 0.0;
+        for (double c : coefficients) row_max = std::max(row_max, std::fabs(c));
+        if (row_max == 0.0) continue;
+        const double zero_floor = relative_zero * row_max;
+        double row_min = std::numeric_limits<double>::infinity();
+        row_max = 0.0;
+        for (double& c : coefficients) {
+            if (c != 0.0 && std::fabs(c) < zero_floor) c = 0.0;
+            if (c != 0.0) {
+                row_min = std::min(row_min, std::fabs(c));
+                row_max = std::max(row_max, std::fabs(c));
+            }
+        }
+        if (row_max == 0.0 || row_max / row_min > max_dynamic_range ||
+            row_max > max_relative_magnitude * matrix_max) continue;
+        const double rhs = 1.0 - constant;
+        double activity = 0.0;
+        GeneralCut cut;
+        cut.row_type = 'G';
+        cut.rhs = rhs;
+        for (std::int32_t j = 0; j < n; ++j) {
+            const double c = coefficients[static_cast<std::size_t>(j)];
+            if (c != 0.0) {
+                activity += c * x[static_cast<std::size_t>(j)];
+                cut.terms.push_back({j, c});
+            }
+        }
+        if (activity < rhs - violation_tolerance && !cut.terms.empty()) cuts.push_back(std::move(cut));
+    }
+    return cuts;
+}
+
 std::vector<FractionalCandidate> fractional_candidates(const MilpProblem& problem,
                                                         const std::vector<double>& x,
                                                         double integrality_tolerance) {
@@ -687,6 +839,7 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
     std::vector<double> incumbent_x;
     bool relaxation_unbounded = false;
     bool root_cuts_separated = false;
+    bool root_gmi_separated = false;
 
     // Warm-started dual simplex for node relaxations
     // (docs/architecture/LP.md \S1/\S2). Keyed by SearchNode::order,
@@ -1091,6 +1244,30 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                 }
                 open.push(node);
                 continue;
+            }
+        }
+        if (node->depth == 0 && !root_gmi_separated && options.enable_root_gmi_cuts) {
+            root_gmi_separated = true;
+            Simplex gmi_simplex(workspace, PricingBackend::CPU, false,
+                                relaxation_options.pricing_rule, LpAlgorithm::AUTO,
+                                relaxation_options.parallel_mode);
+            if (node_options.simplex_time_budget_seconds > 0.0) {
+                gmi_simplex.set_time_budget(node_options.simplex_time_budget_seconds);
+            }
+            ++solution.lp_relaxations;
+            const LpResult gmi_result = gmi_simplex.solve();
+            if (gmi_result.status == LpStatus::OPTIMAL &&
+                gmi_result.x.size() == static_cast<std::size_t>(problem.n_cols())) {
+                const auto cuts = separate_gmi_cuts(problem, workspace, gmi_simplex,
+                                                     gmi_result.x,
+                                                     options.cut_violation_tolerance,
+                                                     options.max_root_gmi_cuts);
+                if (!cuts.empty()) {
+                    append_general_cuts(workspace, cuts);
+                    solution.root_gmi_cuts += cuts.size();
+                    open.push(node);
+                    continue;
+                }
             }
         }
         if (std::isfinite(incumbent) &&

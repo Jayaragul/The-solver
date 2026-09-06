@@ -301,10 +301,13 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by 148 C++/CUDA unit tests
+   SpMV/PDHG/QP paths are implemented and covered by 150 C++/CUDA unit tests
    plus 28 native C smoke tests.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.
+3. The source-level comparison with the referenced LP-and-MLIP-Solver project,
+   including adopted and rejected techniques, is recorded in
+   `docs/research/LP_MLIP_SOLVER_COMPARISON.md`.
 
 Next research milestones:
 
