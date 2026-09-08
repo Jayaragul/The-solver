@@ -76,7 +76,7 @@ only, and not across runs.
 | Random / ill-conditioned / degenerate LP generators | `IMPLEMENTED`, `MEASURED` — deterministic scaled sparse regression; `bench/results/GENERATED_ADVERSARIAL_LP.md` |
 | MPS and sparse-structure fuzzing | `IMPLEMENTED` — deterministic generated sparse MPS round-trip coverage in `tests/io/test_mps_reader.cpp` |
 | Compute Sanitizer in CI | **NOT IMPLEMENTED** — never run |
-| Brute-force checker for tiny MILPs | **NOT APPLICABLE YET** — no MILP engine |
+| Brute-force checker for tiny MILPs | `IMPLEMENTED`, `MEASURED` — exhaustive reference checks and cut-validity cases in `tests/milp/test_milp.cpp` |
 
 `MEASURED`: generated adversarial LP coverage now includes deterministic sparse,
 ill-conditioned coefficient scales from `1e-6` through `1e6`, with known-feasible
@@ -166,6 +166,7 @@ recorded here rather than left implicit.
 | item | status |
 |---|---|
 | Device-resident PDLP, fused kernels | `IMPLEMENTED` — `src/cuda/PdlpKernels.cu` |
+| CUDA QP dual certificate output | `IMPLEMENTED`, `MEASURED` — preconditioned API returns row multipliers; host verifier checks stationarity and complementarity |
 | Sync-free inner loop | `MEASURED` — **127 iterations per host synchronize** vs simplex's 1 |
 | Diagonal preconditioning | `IMPLEMENTED` — Ruiz + Pock–Chambolle |
 | Adaptive step size | `IMPLEMENTED`, `MEASURED`, **net positive in HYBRID** — see below |
