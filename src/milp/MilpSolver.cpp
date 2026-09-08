@@ -328,6 +328,215 @@ std::vector<double> rounded_point(const MilpProblem& problem, const std::vector<
     return rounded;
 }
 
+struct BinarySlackStructure {
+    std::vector<std::int32_t> binary_columns;
+    std::vector<std::int32_t> slack_columns;
+    std::vector<std::vector<std::pair<std::int32_t, double>>> binary_terms;
+    std::vector<double> rhs;
+};
+
+bool extract_binary_slack_structure(const MilpProblem& problem,
+                                    BinarySlackStructure& structure) {
+    const LpProblem& lp = problem.relaxation;
+    if (problem.maximize || lp.n_rows() == 0 || lp.n_rows() > 16) return false;
+    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+        if (lp.row_types[static_cast<std::size_t>(row)] != 'E') return false;
+    }
+    structure.rhs = lp.rhs;
+    structure.slack_columns.assign(static_cast<std::size_t>(lp.n_rows()), -1);
+    std::vector<std::vector<std::pair<std::int32_t, double>>> by_column(
+        static_cast<std::size_t>(lp.n_cols()));
+    for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+        for (std::int32_t k = lp.A.row_ptr()[row]; k < lp.A.row_ptr()[row + 1]; ++k) {
+            const auto kk = static_cast<std::size_t>(k);
+            by_column[static_cast<std::size_t>(lp.A.col_idx()[kk])].emplace_back(
+                row, lp.A.values()[kk]);
+        }
+    }
+    for (std::int32_t j = 0; j < lp.n_cols(); ++j) {
+        const auto jj = static_cast<std::size_t>(j);
+        const bool fixed_zero = lp.lower[jj] == 0.0 && lp.upper[jj] == 0.0;
+        if (problem.variable_types[jj] != VariableType::CONTINUOUS) {
+            if (lp.lower[jj] != 0.0 || lp.upper[jj] != 1.0 || lp.obj[jj] != 0.0) return false;
+            for (const auto& term : by_column[jj]) {
+                if (term.second < 0.0 || !exact_integer(term.second)) return false;
+            }
+            structure.binary_columns.push_back(j);
+            structure.binary_terms.push_back(by_column[jj]);
+        } else if (!fixed_zero) {
+            if (by_column[jj].size() != 1 || lp.obj[jj] != 1.0 || lp.lower[jj] != 0.0) {
+                return false;
+            }
+            const auto [row, coefficient] = by_column[jj][0];
+            if (coefficient != 1.0 || lp.upper[jj] < 0.0) return false;
+            auto& slack = structure.slack_columns[static_cast<std::size_t>(row)];
+            if (slack >= 0) return false;
+            slack = j;
+        }
+    }
+    if (structure.binary_columns.empty()) return false;
+    for (std::int32_t slack : structure.slack_columns) if (slack < 0) return false;
+    return true;
+}
+
+bool binary_slack_repair(const MilpProblem& problem, const std::vector<double>& seed,
+                         std::uint32_t max_iterations, double time_limit_seconds,
+                         std::vector<double>& repaired) {
+    BinarySlackStructure structure;
+    if (!extract_binary_slack_structure(problem, structure) ||
+        seed.size() != static_cast<std::size_t>(problem.n_cols())) return false;
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::int32_t rows = problem.relaxation.n_rows();
+    const std::size_t count = structure.binary_columns.size();
+    std::vector<unsigned char> bits(count, 0);
+    std::vector<double> activity(static_cast<std::size_t>(rows), 0.0);
+    for (std::size_t b = 0; b < count; ++b) {
+        bits[b] = static_cast<unsigned char>(std::clamp(std::round(
+            seed[static_cast<std::size_t>(structure.binary_columns[b])]), 0.0, 1.0));
+        if (!bits[b]) continue;
+        for (const auto& term : structure.binary_terms[b]) {
+            activity[static_cast<std::size_t>(term.first)] += term.second;
+        }
+    }
+    auto score = [&](const std::vector<double>& a) {
+        double value = 0.0;
+        for (std::int32_t row = 0; row < rows; ++row) {
+            const auto rr = static_cast<std::size_t>(row);
+            value += std::max(0.0, structure.rhs[rr] - a[rr]);
+            value += 1000.0 * std::max(0.0, a[rr] - structure.rhs[rr]);
+        }
+        return value;
+    };
+    double current_score = score(activity);
+    double best_feasible = kInfinityValue;
+    std::vector<unsigned char> best_bits;
+    std::vector<unsigned> tabu(count, 0);
+    std::uint32_t stalled = 0;
+    std::uint32_t pair_attempts = 0;
+    for (std::uint32_t iteration = 0; iteration < max_iterations; ++iteration) {
+        if (time_limit_seconds > 0.0 &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >=
+                time_limit_seconds) break;
+        bool feasible = true;
+        double objective = 0.0;
+        for (std::int32_t row = 0; row < rows; ++row) {
+            const auto rr = static_cast<std::size_t>(row);
+            if (activity[rr] > structure.rhs[rr] + 1e-9) feasible = false;
+            objective += std::max(0.0, structure.rhs[rr] - activity[rr]);
+        }
+        if (feasible && objective < best_feasible) {
+            best_feasible = objective;
+            best_bits = bits;
+        }
+
+        double best_move_score = kInfinityValue;
+        std::size_t best_move = count;
+        for (std::size_t b = 0; b < count; ++b) {
+            for (const auto& term : structure.binary_terms[b]) {
+                const auto rr = static_cast<std::size_t>(term.first);
+                activity[rr] += bits[b] ? -term.second : term.second;
+            }
+            const double candidate_score = score(activity);
+            for (const auto& term : structure.binary_terms[b]) {
+                const auto rr = static_cast<std::size_t>(term.first);
+                activity[rr] += bits[b] ? term.second : -term.second;
+            }
+            if (tabu[b] == 0 && candidate_score < best_move_score) {
+                best_move_score = candidate_score;
+                best_move = b;
+            }
+        }
+        if (best_move == count) {
+            for (std::size_t b = 0; b < count; ++b) {
+                for (const auto& term : structure.binary_terms[b]) {
+                    const auto rr = static_cast<std::size_t>(term.first);
+                    activity[rr] += bits[b] ? -term.second : term.second;
+                }
+                const double candidate_score = score(activity);
+                for (const auto& term : structure.binary_terms[b]) {
+                    const auto rr = static_cast<std::size_t>(term.first);
+                    activity[rr] += bits[b] ? term.second : -term.second;
+                }
+                if (candidate_score < best_move_score) {
+                    best_move_score = candidate_score;
+                    best_move = b;
+                }
+            }
+        }
+        if (best_move == count) break;
+        const double previous_score = current_score;
+        bits[best_move] = static_cast<unsigned char>(!bits[best_move]);
+        for (const auto& term : structure.binary_terms[best_move]) {
+            activity[static_cast<std::size_t>(term.first)] +=
+                bits[best_move] ? term.second : -term.second;
+        }
+        for (unsigned& value : tabu) if (value > 0) --value;
+        tabu[best_move] = 7;
+        current_score = best_move_score;
+        if (!std::isfinite(current_score)) break;
+        if (current_score + 1e-9 >= previous_score) ++stalled;
+        else stalled = 0;
+
+        // One-bit descent can get trapped on the market-split instances.
+        // Periodically test a bounded 1->0 / 0->1 exchange to cross that
+        // plateau without introducing an unbounded neighborhood search.
+        if (stalled >= 256 && (iteration & 255u) == 0u && count <= 128 && pair_attempts < 8) {
+            ++pair_attempts;
+            double pair_score = current_score;
+            std::size_t remove = count, add = count;
+            for (std::size_t a = 0; a < count; ++a) {
+                if (!bits[a]) continue;
+                for (std::size_t b = 0; b < count; ++b) {
+                    if (bits[b] || a == b) continue;
+                    for (const auto& term : structure.binary_terms[a])
+                        activity[static_cast<std::size_t>(term.first)] -= term.second;
+                    for (const auto& term : structure.binary_terms[b])
+                        activity[static_cast<std::size_t>(term.first)] += term.second;
+                    const double candidate = score(activity);
+                    for (const auto& term : structure.binary_terms[b])
+                        activity[static_cast<std::size_t>(term.first)] -= term.second;
+                    for (const auto& term : structure.binary_terms[a])
+                        activity[static_cast<std::size_t>(term.first)] += term.second;
+                    if (candidate + 1e-9 < pair_score) {
+                        pair_score = candidate;
+                        remove = a;
+                        add = b;
+                    }
+                }
+            }
+            if (remove < count) {
+                bits[remove] = 0;
+                bits[add] = 1;
+                for (const auto& term : structure.binary_terms[remove])
+                    activity[static_cast<std::size_t>(term.first)] -= term.second;
+                for (const auto& term : structure.binary_terms[add])
+                    activity[static_cast<std::size_t>(term.first)] += term.second;
+                current_score = pair_score;
+                stalled = 0;
+            }
+        }
+    }
+    if (best_bits.empty() || !std::isfinite(best_feasible)) return false;
+
+    repaired.assign(static_cast<std::size_t>(problem.n_cols()), 0.0);
+    for (std::size_t b = 0; b < count; ++b) {
+        repaired[static_cast<std::size_t>(structure.binary_columns[b])] = best_bits[b] ? 1.0 : 0.0;
+    }
+    std::fill(activity.begin(), activity.end(), 0.0);
+    for (std::size_t b = 0; b < count; ++b) {
+        if (!best_bits[b]) continue;
+        for (const auto& term : structure.binary_terms[b]) {
+            activity[static_cast<std::size_t>(term.first)] += term.second;
+        }
+    }
+    for (std::int32_t row = 0; row < rows; ++row) {
+        repaired[static_cast<std::size_t>(structure.slack_columns[static_cast<std::size_t>(row)])] =
+            structure.rhs[static_cast<std::size_t>(row)] - activity[static_cast<std::size_t>(row)];
+    }
+    return true;
+}
+
 struct FractionalCandidate {
     std::int32_t variable = -1;
     double fraction = 0.0;
@@ -1562,6 +1771,21 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
                 // branch on a point that should already be terminal: this is
                 // a numerical inconsistency, not proof of infeasibility.
                 solution.status = MilpStatus::NUMERICAL_FAILURE;
+                break;
+            }
+        }
+
+        if (node->depth == 0 && options.use_binary_slack_heuristic &&
+            options.binary_slack_max_iterations > 0 && !timed_out()) {
+            const std::vector<double>& seed = std::isfinite(incumbent) ? incumbent_x : rounded;
+            std::vector<double> repaired;
+            if (binary_slack_repair(problem, seed, options.binary_slack_max_iterations,
+                                    options.binary_slack_time_limit_seconds, repaired)) {
+                consider_incumbent(repaired, lower, upper);
+            }
+            if (timed_out()) {
+                open.push(node);
+                solution.status = MilpStatus::TIME_LIMIT;
                 break;
             }
         }

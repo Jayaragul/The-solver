@@ -62,6 +62,11 @@ struct MilpSolverOptions {
     bool use_local_improvement = true;
     std::uint32_t local_improvement_passes = 3;
     std::uint32_t local_improvement_max_trials = 128;
+    // Bounded tabu/repair search for binary equality systems with unit-cost
+    // slacks. It only proposes incumbents and never affects proof bounds.
+    bool use_binary_slack_heuristic = true;
+    std::uint32_t binary_slack_max_iterations = 200000;
+    double binary_slack_time_limit_seconds = 1.0;
     // Pseudocost is the measured production default: on the frozen 19-model
     // MIPLIB sweep it certified 9/19 models in 10 seconds versus 6/19 for
     // reliability branching. Reliability remains available for ablations.

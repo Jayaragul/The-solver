@@ -213,7 +213,12 @@ isolated MIPLIB gate is also negative, so it remains disabled while objective
 perturbation and anti-cycling repair are researched
 (`bench/results/MIPLIB_FEASIBILITY_PUMP_ABLATION_10S.md`).
 Incumbent management is a single global best-solution record, single-writer,
-with no concurrency primitives; the B&B control loop is single-threaded.
+with no concurrency primitives; the B&B control loop is single-threaded. A
+structure-gated binary-slack tabu repair search is also enabled by default
+under a one-second root budget. It only proposes incumbents and is inactive
+for general MILPs; on `markshare2` it improves the repeated 10-second
+incumbent from 231 to 189 while leaving the dual bound at zero
+([MIPLIB_BINARY_SLACK_REPAIR_10S](../../bench/results/MIPLIB_BINARY_SLACK_REPAIR_10S.md)).
 
 ### 4.1 Correctness and termination contract
 

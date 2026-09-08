@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -72,6 +73,20 @@ MilpProblem mixed_nonnegative_packing_row() {
                        {VariableType::BINARY, VariableType::BINARY, VariableType::CONTINUOUS}};
 }
 
+MilpProblem binary_unit_slack() {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(
+        1, 3, {Triplet{0, 0, 2.0}, Triplet{0, 1, 2.0}, Triplet{0, 2, 1.0}});
+    lp.obj = {0.0, 0.0, 1.0};
+    lp.rhs = {3.0};
+    lp.row_types = {'E'};
+    lp.lower = {0.0, 0.0, 0.0};
+    lp.upper = {1.0, 1.0, std::numeric_limits<double>::infinity()};
+    sihps::apply_default_row_bounds(lp);
+    return MilpProblem{std::move(lp),
+                       {VariableType::BINARY, VariableType::BINARY, VariableType::CONTINUOUS}};
+}
+
 } // namespace
 
 SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
@@ -90,6 +105,23 @@ SIHPS_TEST(milp_finds_integer_optimum_with_fractional_lp_root) {
     SIHPS_ASSERT_TRUE(result.nodes_pruned >= 1);
     SIHPS_ASSERT_TRUE(result.strong_branching_probes >= 2);
     SIHPS_ASSERT_NEAR(result.relative_gap, 0.0, 0.0);
+}
+
+SIHPS_TEST(milp_binary_slack_repair_finds_feasible_lattice_point) {
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.use_diving_heuristic = false;
+    options.use_local_improvement = false;
+    options.enable_root_cover_cuts = false;
+    options.enable_root_integer_rounding_cuts = false;
+    options.use_binary_slack_heuristic = true;
+    options.binary_slack_max_iterations = 2000;
+    options.binary_slack_time_limit_seconds = 0.1;
+    const auto result = sihps::solve_milp(binary_unit_slack(), options);
+
+    SIHPS_ASSERT_TRUE(result.has_incumbent);
+    SIHPS_ASSERT_NEAR(result.objective_value, 1.0, 1e-8);
+    SIHPS_ASSERT_NEAR(result.x[2], 1.0, 1e-8);
 }
 
 SIHPS_TEST(milp_parallel_strong_branching_preserves_certificate) {

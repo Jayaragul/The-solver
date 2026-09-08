@@ -138,6 +138,7 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native model-validation smoke | malformed CSC endpoint and non-finite coefficient are rejected before solve | passed |
 | Full CMake test suite | 33/33 C and CUDA smoke tests passed | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
+| Binary-slack MILP repair | `markshare2` incumbent 231 → 189 in a repeated 10-second native protocol; dual bound unchanged | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
 | Maros–Mészáros QP results | ten-instance native baseline; two proven optimal, limits retained | recorded |
 | Maros–Mészáros QP Release refresh | Optimized native CUDA-enabled build: HS35MOD and DPKLO1 certified; QPCBLEND retained with explicit dual-residual limit | recorded |
@@ -263,6 +264,10 @@ The current hard-instance evidence is retained in the [`markshare2`
 diagnostic](bench/results/MIPLIB_MARKSHARE2_DIAGNOSTIC.md), [`pk1` diagnostic](bench/results/MIPLIB_PK1_DIAGNOSTIC.md),
 and [branching ablation](bench/results/MIPLIB_MARKSHARE2_BRANCHING_ABLATION.md);
 none of these limits are presented as optimality claims.
+The bounded binary-slack repair heuristic improves the `markshare2` incumbent
+from 231 to 189 under a repeated 10-second protocol, while retaining the same
+zero dual bound; this is recorded in
+[MIPLIB_BINARY_SLACK_REPAIR_10S](bench/results/MIPLIB_BINARY_SLACK_REPAIR_10S.md).
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
 The original baseline records its initial one proven optimum; the optimized
@@ -301,7 +306,7 @@ Completed foundation:
 
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
-   SpMV/PDHG/QP paths are implemented and covered by 155 C++/CUDA unit tests
+   SpMV/PDHG/QP paths are implemented and covered by 156 C++/CUDA unit tests
    plus 28 native C smoke tests.
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.
