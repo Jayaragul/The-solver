@@ -268,6 +268,9 @@ The bounded binary-slack repair heuristic improves the `markshare2` incumbent
 from 231 to 189 under a repeated 10-second protocol, while retaining the same
 zero dual bound; this is recorded in
 [MIPLIB_BINARY_SLACK_REPAIR_10S](bench/results/MIPLIB_BINARY_SLACK_REPAIR_10S.md).
+The complete production-settings refresh is retained in
+[MIPLIB_PSEUDOCOST_PRODUCTION_REFRESH_10S](bench/results/MIPLIB_PSEUDOCOST_PRODUCTION_REFRESH_10S.md),
+with the full machine-readable output alongside it.
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
 The original baseline records its initial one proven optimum; the optimized
