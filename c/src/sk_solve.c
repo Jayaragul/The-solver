@@ -579,6 +579,211 @@ done:
     free(orig_x); free(orig_y);
 }
 
+/* Bounded working-set fallback for small convex QPs.  PDHG is the scalable
+ * path, but a feasible first-order point can still spend most of its budget
+ * reducing the last few active-set residuals.  This routine solves the
+ * equality-constrained QP step on a changing working set, performs an
+ * exact blocking-step line search, and removes active inequalities whose
+ * multipliers have the wrong sign.  It is deliberately capped at 256 total
+ * variables plus rows and never makes an optimality claim without the normal
+ * independent verifier. */
+static int qp_active_working_set(const sk_model *m, const sk_options *o,
+                                 double *x, double *y)
+{
+    typedef struct {
+        int kind; /* 0/1 variable lower/upper, 2/3 row lower/upper, 4 equality */
+        int index;
+    } active_constraint;
+    const int n = m->ncol, r = m->nrow, max_active = n + r;
+    double *orig_x = NULL, *orig_y = NULL, *h = NULL, *arow = NULL;
+    double *activity = NULL, *gradient = NULL, *kmat = NULL, *rhs = NULL;
+    double *step = NULL;
+    active_constraint *active = NULL;
+    unsigned char *var_active = NULL, *row_active = NULL;
+    int *free_var = NULL;
+    int i, j, p, iter, na = 0, success = 0;
+    const double active_tol = fmax(1e-8, 20.0 * o->primal_tol);
+    const double multiplier_tol = fmax(1e-8, 20.0 * o->dual_tol);
+
+    if (!m->Q || n + r > 256 || n < 0 || r < 0) return 0;
+    orig_x = (double *)malloc((size_t)n * sizeof(double));
+    orig_y = (double *)malloc((size_t)r * sizeof(double));
+    h = (double *)calloc((size_t)n * (size_t)n, sizeof(double));
+    arow = (double *)calloc((size_t)r * (size_t)n, sizeof(double));
+    activity = (double *)calloc((size_t)r, sizeof(double));
+    gradient = (double *)calloc((size_t)n, sizeof(double));
+    kmat = (double *)calloc((size_t)(n + r) * (size_t)(n + r), sizeof(double));
+    rhs = (double *)calloc((size_t)(n + r), sizeof(double));
+    step = (double *)calloc((size_t)n, sizeof(double));
+    active = (active_constraint *)calloc((size_t)max_active, sizeof(active_constraint));
+    var_active = (unsigned char *)calloc((size_t)n, sizeof(unsigned char));
+    row_active = (unsigned char *)calloc((size_t)r, sizeof(unsigned char));
+    free_var = (int *)calloc((size_t)n, sizeof(int));
+    if ((!orig_x && n) || (!orig_y && r) || !h || (!arow && r && n) ||
+        (!activity && r) || (!gradient && n) || !kmat || !rhs || (!step && n) ||
+        !active || (!var_active && n) || (!row_active && r) || (!free_var && n)) goto done;
+
+    memcpy(orig_x, x, (size_t)n * sizeof(double));
+    memcpy(orig_y, y, (size_t)r * sizeof(double));
+    for (j = 0; j < n; ++j) {
+        for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
+            h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
+        for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
+            arow[(size_t)m->A.i[p] * (size_t)n + (size_t)j] = m->A.x[p];
+    }
+    csc_mv(&m->A, x, activity);
+    if (row_violation(m, activity) > 100.0 * o->primal_tol) goto done;
+    for (j = 0; j < n; ++j) {
+        if (!SK_IS_NEG_INF(m->clow[j]) && fabs(x[j] - m->clow[j]) <= active_tol) {
+            active[na++] = (active_constraint){0, j}; var_active[j] = 1;
+        } else if (!SK_IS_INF(m->cupp[j]) && fabs(x[j] - m->cupp[j]) <= active_tol) {
+            active[na++] = (active_constraint){1, j}; var_active[j] = 2;
+        }
+    }
+    for (i = 0; i < r; ++i) {
+        const int equality = !SK_IS_NEG_INF(m->rlow[i]) && !SK_IS_INF(m->rupp[i]) &&
+                             fabs(m->rlow[i] - m->rupp[i]) <= active_tol;
+        if (equality) {
+            active[na++] = (active_constraint){4, i}; row_active[i] = 1;
+        } else if (!SK_IS_NEG_INF(m->rlow[i]) && fabs(activity[i] - m->rlow[i]) <= active_tol) {
+            active[na++] = (active_constraint){2, i}; row_active[i] = 1;
+        } else if (!SK_IS_INF(m->rupp[i]) && fabs(activity[i] - m->rupp[i]) <= active_tol) {
+            active[na++] = (active_constraint){3, i}; row_active[i] = 1;
+        }
+    }
+
+    for (iter = 0; iter < 4 * (max_active + 1); ++iter) {
+        int nf = 0, dim, k, blocker = -1;
+        double alpha = 1.0, step_norm = 0.0;
+        memset(gradient, 0, (size_t)n * sizeof(double));
+        for (j = 0; j < n; ++j) {
+            gradient[j] = m->c[j];
+            for (p = 0; p < n; ++p) gradient[j] += h[(size_t)j * n + p] * x[p];
+            if (!var_active[j]) free_var[nf++] = j;
+        }
+        dim = nf + na;
+        if (dim == 0 || dim > n + r) goto done;
+        memset(kmat, 0, (size_t)dim * (size_t)dim * sizeof(double));
+        memset(rhs, 0, (size_t)dim * sizeof(double));
+        for (i = 0; i < nf; ++i) {
+            const int v = free_var[i];
+            rhs[i] = -gradient[v];
+            for (j = 0; j < nf; ++j)
+                kmat[(size_t)i * dim + (size_t)j] = h[(size_t)v * n + (size_t)free_var[j]];
+        }
+        for (k = 0; k < na; ++k) {
+            const active_constraint ac = active[k];
+            const int row = nf + k;
+            if (ac.kind == 4 || ac.kind == 2 || ac.kind == 3) {
+                const int rr = ac.index;
+                for (i = 0; i < nf; ++i) {
+                    double value = arow[(size_t)rr * n + (size_t)free_var[i]];
+                    if (ac.kind == 3) value = -value;
+                    kmat[(size_t)i * dim + (size_t)row] = value;
+                    kmat[(size_t)row * dim + (size_t)i] = value;
+                }
+            } else {
+                const int vv = ac.index;
+                for (i = 0; i < nf; ++i) {
+                    double value = free_var[i] == vv ? 1.0 : 0.0;
+                    if (ac.kind == 1) value = -value;
+                    kmat[(size_t)i * dim + (size_t)row] = value;
+                    kmat[(size_t)row * dim + (size_t)i] = value;
+                }
+            }
+        }
+        if (!qp_dense_solve(kmat, rhs, dim)) goto done;
+        memset(step, 0, (size_t)n * sizeof(double));
+        for (i = 0; i < nf; ++i) {
+            step[free_var[i]] = rhs[i];
+            step_norm = fmax(step_norm, fabs(rhs[i]));
+        }
+        if (step_norm <= active_tol) {
+            int remove = -1;
+            double worst = multiplier_tol;
+            for (k = 0; k < na; ++k) {
+                const active_constraint ac = active[k];
+                if (ac.kind == 4) continue;
+                if (rhs[nf + k] > worst) { worst = rhs[nf + k]; remove = k; }
+            }
+            if (remove >= 0) {
+                const active_constraint ac = active[remove];
+                if (ac.kind < 2) var_active[ac.index] = 0;
+                else row_active[ac.index] = 0;
+                memmove(&active[remove], &active[remove + 1],
+                        (size_t)(na - remove - 1) * sizeof(active_constraint));
+                --na;
+                continue;
+            }
+            memset(y, 0, (size_t)r * sizeof(double));
+            for (k = 0; k < na; ++k) {
+                const active_constraint ac = active[k];
+                if (ac.kind == 2 || ac.kind == 4) y[ac.index] = rhs[nf + k];
+                else if (ac.kind == 3) y[ac.index] = -rhs[nf + k];
+            }
+            success = 1;
+            break;
+        }
+        for (i = 0; i < n; ++i) if (step[i] != 0.0) {
+            if (!var_active[i] && !SK_IS_NEG_INF(m->clow[i]) && step[i] < 0.0) {
+                const double candidate = (m->clow[i] - x[i]) / step[i];
+                if (candidate >= 0.0 && candidate < alpha) { alpha = candidate; blocker = i; }
+            }
+            if (!var_active[i] && !SK_IS_INF(m->cupp[i]) && step[i] > 0.0) {
+                const double candidate = (m->cupp[i] - x[i]) / step[i];
+                if (candidate >= 0.0 && candidate < alpha) { alpha = candidate; blocker = n + i; }
+            }
+        }
+        for (i = 0; i < r; ++i) if (!row_active[i]) {
+            double directional = 0.0;
+            for (j = 0; j < n; ++j) directional += arow[(size_t)i * n + (size_t)j] * step[j];
+            if (!SK_IS_NEG_INF(m->rlow[i]) && directional < 0.0) {
+                const double candidate = (m->rlow[i] - activity[i]) / directional;
+                if (candidate >= 0.0 && candidate < alpha) { alpha = candidate; blocker = 2 * n + i; }
+            }
+            if (!SK_IS_INF(m->rupp[i]) && directional > 0.0) {
+                const double candidate = (m->rupp[i] - activity[i]) / directional;
+                if (candidate >= 0.0 && candidate < alpha) { alpha = candidate; blocker = 3 * n + i; }
+            }
+        }
+        if (alpha < 0.0 || !isfinite(alpha)) goto done;
+        for (j = 0; j < n; ++j) x[j] += alpha * step[j];
+        csc_mv(&m->A, x, activity);
+        if (blocker >= 0 && alpha < 1.0 - 1e-10) {
+            int kind, index;
+            if (blocker < n) { kind = 0; index = blocker; }
+            else if (blocker < 2 * n) { kind = 1; index = blocker - n; }
+            else if (blocker < 3 * n) { kind = 2; index = blocker - 2 * n; }
+            else { kind = 3; index = blocker - 3 * n; }
+            if (kind < 2 && !var_active[index]) {
+                var_active[index] = (unsigned char)(kind + 1);
+                active[na++] = (active_constraint){kind, index};
+            } else if (kind >= 2 && !row_active[index]) {
+                row_active[index] = 1;
+                active[na++] = (active_constraint){kind, index};
+            }
+        }
+    }
+    if (success) {
+        sk_solution candidate;
+        sk_solution_init(&candidate);
+        candidate.x = x; candidate.y = y; candidate.ncol = n; candidate.nrow = r;
+        if (sk_verify(m, &candidate) != SK_OK ||
+            candidate.primal_infeasibility > 100.0 * o->primal_tol ||
+            candidate.dual_infeasibility > 100.0 * o->dual_tol ||
+            candidate.complementarity > 100.0 * o->dual_tol) success = 0;
+    }
+done:
+    if (!success) {
+        if (orig_x) memcpy(x, orig_x, (size_t)n * sizeof(double));
+        if (orig_y) memcpy(y, orig_y, (size_t)r * sizeof(double));
+    }
+    free(orig_x); free(orig_y); free(h); free(arow); free(activity); free(gradient);
+    free(kmat); free(rhs); free(step); free(active); free(var_active);
+    free(row_active); free(free_var);
+    return success;
+}
+
 static sk_status solve_continuous(const sk_model *m, const sk_options *options, sk_solution *s)
 {
     sk_options defaults;
@@ -722,7 +927,12 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
     }
 
     performed_iterations = iteration > maximum_iterations ? maximum_iterations : iteration;
-    if (m->Q) qp_active_polish(m, x, y);
+    if (m->Q) {
+        qp_active_polish(m, x, y);
+        /* The working-set path is bounded to small convex models and is
+           accepted only through the same original-space KKT verifier. */
+        qp_active_working_set(m, o, x, y);
+    }
 
     sk_solution_init(s);
     s->x = x; x = NULL;
