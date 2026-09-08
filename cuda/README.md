@@ -8,7 +8,14 @@ The initial GPU surface is deliberately small and verifiable:
 - `sankhya_cuda_axpy_device_f64`: device-pointer vector update for iterative algorithms.
 - `sankhya_qp_cuda`: native CUDA CLI for continuous QPS models with either an
   implicit nonnegative diagonal Hessian or a resident sparse Hessian; the
-  result is checked by the sovereign C verifier.
+  result is checked by the sovereign C verifier and a component-wise GPU
+  stationarity/complementarity gate.
+
+Every iterative result exposes row feasibility, projected KKT, dual
+stationarity/sign, and normalized complementarity residuals. The convergence
+status is accepted only when all components pass the requested tolerance. The
+implementation also recognizes the native C `+/-1e30` infinity sentinel, so
+free variables and rows cannot create false complementarity failures.
 
 The host-memory API copies arrays for each call and is a correctness baseline. The
 persistent API keeps the sparse matrix resident so repeated Krylov, PDHG, or

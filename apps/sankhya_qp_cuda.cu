@@ -192,14 +192,21 @@ int main(int argc, char** argv)
     checked.nrow = model.nrow;
     const sk_status verify_status = rc == 0 ? sk_verify(&model, &checked) : SK_ERR_NUMERIC;
     std::printf("{\"file\":\"%s\",\"status\":%d,\"iterations\":%d,\"objective\":%.12g,"
-                "\"primal_inf\":%.3e,\"kkt_residual\":%.3e,\"solve_seconds\":%.6f,\"independent_primal_status\":\"%s\",\"independent_objective\":%.12g}\n",
+                "\"primal_inf\":%.3e,\"kkt_residual\":%.3e,\"solve_seconds\":%.6f,\"independent_primal_status\":\"%s\",\"independent_objective\":%.12g,"
+                "\"independent_primal_inf\":%.3e,\"gpu_dual_inf\":%.3e,\"gpu_complementarity\":%.3e}\n",
         path, gpu_result.status, gpu_result.iterations, gpu_result.objective + model.objshift,
         gpu_result.maximum_row_violation, gpu_result.maximum_kkt_residual,
-        solve_seconds, sk_status_name(verify_status), checked.objective);
+        solve_seconds, sk_status_name(verify_status), checked.objective,
+        checked.primal_infeasibility, gpu_result.maximum_dual_residual,
+        gpu_result.maximum_complementarity);
 
     sankhya_cuda_csr_destroy(&matrix);
     if (!diagonal_hessian) sankhya_cuda_csr_destroy(&hessian);
     sk_model_free(&model);
-    return rc == 0 && gpu_result.status == 0 && verify_status == SK_OK &&
-        checked.primal_infeasibility <= 100.0 * settings.tolerance ? 0 : 3;
+    const bool independently_verified =
+        verify_status == SK_OK &&
+        checked.primal_infeasibility <= 100.0 * settings.tolerance &&
+        gpu_result.maximum_dual_residual <= 100.0 * settings.tolerance &&
+        gpu_result.maximum_complementarity <= 100.0 * settings.tolerance;
+    return rc == 0 && gpu_result.status == 0 && independently_verified ? 0 : 3;
 }

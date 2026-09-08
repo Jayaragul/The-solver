@@ -84,6 +84,18 @@ bool valid_upper_bound(double value) {
     return !std::isnan(value) && !(std::isinf(value) && value < 0.0);
 }
 
+// The native C model represents infinity with +/-1e30 (SK_INFINITY), not
+// IEEE infinity. Residual gates must treat that sentinel as unbounded too;
+// otherwise a free variable or row contributes a spurious 1e30 complementarity
+// product.
+bool has_lower_bound(double value) {
+    return std::isfinite(value) && value > -5.0e29;
+}
+
+bool has_upper_bound(double value) {
+    return std::isfinite(value) && value < 5.0e29;
+}
+
 }  // namespace
 
 int solve_qp(
@@ -107,6 +119,8 @@ int solve_qp(
     result->maximum_row_violation = std::numeric_limits<double>::infinity();
     result->maximum_step = std::numeric_limits<double>::infinity();
     result->maximum_kkt_residual = std::numeric_limits<double>::infinity();
+    result->maximum_dual_residual = std::numeric_limits<double>::infinity();
+    result->maximum_complementarity = std::numeric_limits<double>::infinity();
     if (check_cuda() != 0 || matrix == nullptr || c == nullptr || row_lower == nullptr ||
         row_upper == nullptr || col_lower == nullptr || col_upper == nullptr || solution == nullptr)
         return -1;
@@ -290,12 +304,70 @@ int solve_qp(
                     col_lower[column], col_upper[column]);
                 kkt_residual = std::max(kkt_residual, std::fabs(host_x[index] - projected));
             }
+            double dual_residual = 0.0;
+            double complementarity = 0.0;
+            for (int column = 0; column < cols; ++column) {
+                const size_t index = static_cast<size_t>(column);
+                const double qgradient = quadratic_diagonal != nullptr
+                    ? quadratic_diagonal[column] * host_x[index]
+                    : (hessian != nullptr ? host_qx[index] : 0.0);
+                const double residual = c[column] + host_aty[index] + qgradient;
+                const bool at_lower = has_lower_bound(col_lower[column]) &&
+                    std::fabs(host_x[index] - col_lower[column]) <= 1e-9;
+                const bool at_upper = has_upper_bound(col_upper[column]) &&
+                    std::fabs(host_x[index] - col_upper[column]) <= 1e-9;
+                if (at_lower && at_upper) {
+                    // Fixed variables accept either stationarity sign.
+                } else if (at_lower) {
+                    dual_residual = std::max(dual_residual, -residual);
+                } else if (at_upper) {
+                    dual_residual = std::max(dual_residual, residual);
+                } else {
+                    dual_residual = std::max(dual_residual, std::fabs(residual));
+                }
+                if (residual > 0.0 && has_lower_bound(col_lower[column])) {
+                    complementarity = std::max(complementarity,
+                        residual * std::fabs(host_x[index] - col_lower[column]));
+                } else if (residual < 0.0 && has_upper_bound(col_upper[column])) {
+                    complementarity = std::max(complementarity,
+                        -residual * std::fabs(col_upper[column] - host_x[index]));
+                }
+            }
+            for (int row = 0; row < rows; ++row) {
+                const double multiplier = host_dual[static_cast<size_t>(row)];
+                const double activity = host_activity[static_cast<size_t>(row)];
+                const bool at_lower = has_lower_bound(row_lower[row]) &&
+                    std::fabs(activity - row_lower[row]) <= 1e-9;
+                const bool at_upper = has_upper_bound(row_upper[row]) &&
+                    std::fabs(activity - row_upper[row]) <= 1e-9;
+                if (at_lower && at_upper) {
+                    // Fixed rows accept either multiplier sign.
+                } else if (at_lower) {
+                    dual_residual = std::max(dual_residual, multiplier);
+                } else if (at_upper) {
+                    dual_residual = std::max(dual_residual, -multiplier);
+                } else {
+                    dual_residual = std::max(dual_residual, std::fabs(multiplier));
+                }
+                if (multiplier < 0.0 && has_lower_bound(row_lower[row])) {
+                    complementarity = std::max(complementarity,
+                        -multiplier * std::fabs(activity - row_lower[row]));
+                } else if (multiplier > 0.0 && has_upper_bound(row_upper[row])) {
+                    complementarity = std::max(complementarity,
+                        multiplier * std::fabs(row_upper[row] - activity));
+                }
+            }
+            const double objective_scale = 1.0 + std::fabs(objective);
             result->objective = objective;
             result->maximum_row_violation = violation;
             result->maximum_step = step;
             result->maximum_kkt_residual = kkt_residual;
+            result->maximum_dual_residual = dual_residual;
+            result->maximum_complementarity = complementarity / objective_scale;
             if (violation <= settings.tolerance && step <= settings.tolerance * scale &&
-                kkt_residual <= settings.tolerance) {
+                kkt_residual <= settings.tolerance &&
+                dual_residual <= settings.tolerance &&
+                result->maximum_complementarity <= settings.tolerance) {
                 final_iteration = iteration; result->status = 0; break;
             }
         }

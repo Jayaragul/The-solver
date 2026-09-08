@@ -60,6 +60,11 @@ typedef struct SankhyaCudaLPResult {
     /* Infinity norm of the projected primal/dual KKT residual evaluated at
        the latest host-visible checkpoint. */
     double maximum_kkt_residual;
+    /* Separately reported sign/stationarity and complementary-slackness
+       residuals. These are evaluated from the same host-visible iterate as
+       maximum_kkt_residual and let callers apply a component-wise gate. */
+    double maximum_dual_residual;
+    double maximum_complementarity;
 } SankhyaCudaLPResult;
 
 /* Solve min c'x subject to row_lower <= A*x <= row_upper and

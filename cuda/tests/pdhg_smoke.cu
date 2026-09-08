@@ -50,6 +50,8 @@ int main() {
         return 5;
     }
     if (result.status != 0 || result.maximum_row_violation > 1e-5 || result.maximum_kkt_residual > 1e-5 ||
+        !std::isfinite(result.maximum_dual_residual) || result.maximum_dual_residual > 1e-5 ||
+        !std::isfinite(result.maximum_complementarity) || result.maximum_complementarity > 1e-5 ||
         std::fabs(solution[0] - 1.0) > 1e-3) {
         std::fprintf(stderr, "PDHG result: status=%d x=%.17g infeas=%.17g kkt=%.17g\n",
             result.status, solution[0], result.maximum_row_violation, result.maximum_kkt_residual);
