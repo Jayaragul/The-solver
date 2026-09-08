@@ -111,6 +111,7 @@ int solve_qp(
     const double* primal_steps,
     const double* dual_steps,
     double* solution,
+    double* dual_solution,
     SankhyaCudaLPResult* result) {
     if (result == nullptr) return -1;
     result->status = -1;
@@ -375,6 +376,10 @@ int solve_qp(
     if (result->status < 0) result->status = 1;
     result->iterations = final_iteration;
     if (cols > 0 && cudaMemcpy(solution, d_x, sizeof(double) * cols, cudaMemcpyDeviceToHost) != cudaSuccess) { cleanup(); return -1; }
+    if (dual_solution != nullptr && rows > 0 &&
+        cudaMemcpy(dual_solution, d_y, sizeof(double) * rows, cudaMemcpyDeviceToHost) != cudaSuccess) {
+        cleanup(); return -1;
+    }
     cleanup();
     return 0;
 }
@@ -384,7 +389,7 @@ extern "C" int sankhya_cuda_lp_pdhg(
     const double* row_upper, const double* col_lower, const double* col_upper,
     SankhyaCudaLPSettings settings, double* solution, SankhyaCudaLPResult* result) {
     return solve_qp(matrix, nullptr, nullptr, c, row_lower, row_upper, col_lower,
-        col_upper, settings, nullptr, nullptr, solution, result);
+        col_upper, settings, nullptr, nullptr, solution, nullptr, result);
 }
 
 extern "C" int sankhya_cuda_diagonal_qp_pdhg(
@@ -394,7 +399,7 @@ extern "C" int sankhya_cuda_diagonal_qp_pdhg(
     SankhyaCudaLPResult* result) {
     if (quadratic_diagonal == nullptr) return -1;
     return solve_qp(matrix, nullptr, quadratic_diagonal, c, row_lower, row_upper,
-        col_lower, col_upper, settings, nullptr, nullptr, solution, result);
+        col_lower, col_upper, settings, nullptr, nullptr, solution, nullptr, result);
 }
 
 extern "C" int sankhya_cuda_sparse_qp_pdhg(
@@ -404,7 +409,7 @@ extern "C" int sankhya_cuda_sparse_qp_pdhg(
     SankhyaCudaLPResult* result) {
     if (hessian == nullptr) return -1;
     return solve_qp(matrix, hessian, nullptr, c, row_lower, row_upper,
-        col_lower, col_upper, settings, nullptr, nullptr, solution, result);
+        col_lower, col_upper, settings, nullptr, nullptr, solution, nullptr, result);
 }
 
 extern "C" int sankhya_cuda_qp_pdhg_preconditioned(
@@ -415,5 +420,18 @@ extern "C" int sankhya_cuda_qp_pdhg_preconditioned(
     double* solution, SankhyaCudaLPResult* result) {
     if (primal_steps == nullptr || dual_steps == nullptr) return -1;
     return solve_qp(matrix, hessian, quadratic_diagonal, c, row_lower, row_upper,
-        col_lower, col_upper, settings, primal_steps, dual_steps, solution, result);
+        col_lower, col_upper, settings, primal_steps, dual_steps, solution, nullptr, result);
+}
+
+extern "C" int sankhya_cuda_qp_pdhg_preconditioned_with_dual(
+    const SankhyaCudaCSR* matrix, const SankhyaCudaCSR* hessian,
+    const double* quadratic_diagonal, const double* c, const double* row_lower,
+    const double* row_upper, const double* col_lower, const double* col_upper,
+    const double* primal_steps, const double* dual_steps,
+    SankhyaCudaLPSettings settings, double* solution, double* dual_solution,
+    SankhyaCudaLPResult* result) {
+    if (primal_steps == nullptr || dual_steps == nullptr || dual_solution == nullptr) return -1;
+    return solve_qp(matrix, hessian, quadratic_diagonal, c, row_lower, row_upper,
+        col_lower, col_upper, settings, primal_steps, dual_steps, solution,
+        dual_solution, result);
 }

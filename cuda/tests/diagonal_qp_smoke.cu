@@ -36,15 +36,16 @@ int main() {
        scalar fallbacks are legal; non-positive vector steps are rejected. */
     const double primal_step[] = {0.15};
     const double dual_step[] = {0.5};
+    double dual_solution[] = {0.0};
     SankhyaCudaLPSettings vector_settings{10000, 10, 0.0, 0.0, 1.0, 1e-7, 0.0};
     solution[0] = 0.0;
-    const int vector_status = sankhya_cuda_qp_pdhg_preconditioned(&matrix, nullptr, diagonal, cost,
+    const int vector_status = sankhya_cuda_qp_pdhg_preconditioned_with_dual(&matrix, nullptr, diagonal, cost,
         row_lower, row_upper, col_lower, col_upper, primal_step, dual_step,
-        vector_settings, solution, &result);
+        vector_settings, solution, dual_solution, &result);
     if (vector_status != 0 || result.status != 0 || result.maximum_kkt_residual > 1e-7 ||
         !std::isfinite(result.maximum_dual_residual) || result.maximum_dual_residual > 1e-7 ||
         !std::isfinite(result.maximum_complementarity) || result.maximum_complementarity > 1e-7 ||
-        std::fabs(solution[0] - 2.0) > 1e-5) {
+        std::fabs(solution[0] - 2.0) > 1e-5 || std::fabs(dual_solution[0]) > 1e-6) {
         std::fprintf(stderr, "Preconditioned diagonal QP result: status=%d x=%.17g\n",
             vector_status, solution[0]);
         sankhya_cuda_csr_destroy(&matrix);

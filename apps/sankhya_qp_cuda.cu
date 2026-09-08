@@ -176,29 +176,32 @@ int main(int argc, char** argv)
     }
 
     std::vector<double> solution(static_cast<size_t>(model.ncol), 0.0);
+    std::vector<double> dual(static_cast<size_t>(model.nrow), 0.0);
     SankhyaCudaLPResult gpu_result{};
     const auto solve_start = std::chrono::steady_clock::now();
-    const int rc = sankhya_cuda_qp_pdhg_preconditioned(&matrix,
+    const int rc = sankhya_cuda_qp_pdhg_preconditioned_with_dual(&matrix,
         diagonal_hessian ? nullptr : &hessian, diagonal_hessian ? diagonal.data() : nullptr,
         model.c, model.rlow, model.rupp, model.clow, model.cupp,
-        primal_steps.data(), dual_steps.data(), settings, solution.data(), &gpu_result);
+        primal_steps.data(), dual_steps.data(), settings, solution.data(), dual.data(), &gpu_result);
     const double solve_seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - solve_start).count();
 
     sk_solution checked;
     sk_solution_init(&checked);
     checked.x = solution.data();
+    checked.y = dual.data();
     checked.ncol = model.ncol;
     checked.nrow = model.nrow;
     const sk_status verify_status = rc == 0 ? sk_verify(&model, &checked) : SK_ERR_NUMERIC;
     std::printf("{\"file\":\"%s\",\"status\":%d,\"iterations\":%d,\"objective\":%.12g,"
                 "\"primal_inf\":%.3e,\"kkt_residual\":%.3e,\"solve_seconds\":%.6f,\"independent_primal_status\":\"%s\",\"independent_objective\":%.12g,"
-                "\"independent_primal_inf\":%.3e,\"gpu_dual_inf\":%.3e,\"gpu_complementarity\":%.3e}\n",
+                "\"independent_primal_inf\":%.3e,\"independent_dual_inf\":%.3e,\"independent_complementarity\":%.3e,"
+                "\"gpu_dual_inf\":%.3e,\"gpu_complementarity\":%.3e}\n",
         path, gpu_result.status, gpu_result.iterations, gpu_result.objective + model.objshift,
         gpu_result.maximum_row_violation, gpu_result.maximum_kkt_residual,
         solve_seconds, sk_status_name(verify_status), checked.objective,
-        checked.primal_infeasibility, gpu_result.maximum_dual_residual,
-        gpu_result.maximum_complementarity);
+        checked.primal_infeasibility, checked.dual_infeasibility, checked.complementarity,
+        gpu_result.maximum_dual_residual, gpu_result.maximum_complementarity);
 
     sankhya_cuda_csr_destroy(&matrix);
     if (!diagonal_hessian) sankhya_cuda_csr_destroy(&hessian);
@@ -206,7 +209,7 @@ int main(int argc, char** argv)
     const bool independently_verified =
         verify_status == SK_OK &&
         checked.primal_infeasibility <= 100.0 * settings.tolerance &&
-        gpu_result.maximum_dual_residual <= 100.0 * settings.tolerance &&
-        gpu_result.maximum_complementarity <= 100.0 * settings.tolerance;
+        checked.dual_infeasibility <= 100.0 * settings.tolerance &&
+        checked.complementarity <= 100.0 * settings.tolerance;
     return rc == 0 && gpu_result.status == 0 && independently_verified ? 0 : 3;
 }

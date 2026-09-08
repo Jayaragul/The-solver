@@ -16,6 +16,9 @@ stationarity/sign, and normalized complementarity residuals. The convergence
 status is accepted only when all components pass the requested tolerance. The
 implementation also recognizes the native C `+/-1e30` infinity sentinel, so
 free variables and rows cannot create false complementarity failures.
+`sankhya_cuda_qp_pdhg_preconditioned_with_dual` additionally returns the
+device dual multipliers so the host `sk_verify` routine can independently
+recompute the dual and complementarity certificate.
 
 The host-memory API copies arrays for each call and is a correctness baseline. The
 persistent API keeps the sparse matrix resident so repeated Krylov, PDHG, or

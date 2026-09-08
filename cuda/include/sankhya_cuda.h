@@ -76,8 +76,26 @@ SANKHYA_CUDA_API int sankhya_cuda_lp_pdhg(
     const double* row_upper,
     const double* col_lower,
     const double* col_upper,
+SankhyaCudaLPSettings settings,
+    double* solution,
+    SankhyaCudaLPResult* result);
+
+/* Preconditioned QP entry point with dual-multiplier output for an
+   independent host-side KKT certificate. */
+SANKHYA_CUDA_API int sankhya_cuda_qp_pdhg_preconditioned_with_dual(
+    const SankhyaCudaCSR* matrix,
+    const SankhyaCudaCSR* hessian,
+    const double* quadratic_diagonal,
+    const double* c,
+    const double* row_lower,
+    const double* row_upper,
+    const double* col_lower,
+    const double* col_upper,
+    const double* primal_steps,
+    const double* dual_steps,
     SankhyaCudaLPSettings settings,
     double* solution,
+    double* dual_solution,
     SankhyaCudaLPResult* result);
 
 /* Solve the convex diagonal QP
