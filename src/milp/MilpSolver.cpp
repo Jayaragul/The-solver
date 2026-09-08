@@ -268,6 +268,135 @@ void round_integer_inequality_rhs(const MilpProblem& problem, LpProblem& workspa
     }
 }
 
+// Tighten integer bounds from one-sided rows without changing the row itself.
+// For a normalized row c*x <= b, finite bounds on every other term give
+//
+//     c_j*x_j <= b - min_{k != j} c_k*x_k.
+//
+// This is an interval proof, not a floating-point cut: only rows whose terms
+// are all integer variables and whose bounds are finite are considered.  The
+// computed quotient is rounded outward by an error envelope before floor/ceil,
+// so cancellation can only miss a tightening, never exclude an integer point.
+// Ranged rows, continuous terms, non-finite data, and overflow-prone rows are
+// deliberately left for the certified LP relaxation.
+bool propagate_integer_inequality_bounds(const MilpProblem& problem,
+                                          std::vector<double>& lower,
+                                          std::vector<double>& upper,
+                                          std::uint64_t& tightenings) {
+    constexpr long double kMachineGuard =
+        64.0L * static_cast<long double>(std::numeric_limits<double>::epsilon());
+    constexpr long double kRelativeGuard = 1e-12L;
+    const LpProblem& lp = problem.relaxation;
+    const std::int32_t max_passes =
+        std::max<std::int32_t>(1, std::min<std::int32_t>(4, lp.n_rows()));
+
+    for (std::int32_t pass = 0; pass < max_passes; ++pass) {
+        const std::uint64_t pass_start = tightenings;
+        for (std::int32_t row = 0; row < lp.n_rows(); ++row) {
+            const auto rr = static_cast<std::size_t>(row);
+            const char type = lp.row_types[rr];
+            if ((type != 'L' && type != 'G') ||
+                (type == 'L' && std::isfinite(lp.slack_upper[rr])) ||
+                (type == 'G' && std::isfinite(lp.slack_lower[rr]))) {
+                continue;
+            }
+
+            const double source_rhs =
+                lp.rhs[rr] - (type == 'L' ? lp.slack_lower[rr] : lp.slack_upper[rr]);
+            if (!std::isfinite(source_rhs)) continue;
+            const long double sign = type == 'L' ? 1.0L : -1.0L;
+            const long double rhs = sign * static_cast<long double>(source_rhs);
+            if (!std::isfinite(rhs)) continue;
+
+            const std::int32_t begin = lp.A.row_ptr()[row];
+            const std::int32_t end = lp.A.row_ptr()[row + 1];
+            if (begin == end || end - begin > 256) continue;
+
+            bool valid = true;
+            long double minimum_activity = 0.0L;
+            long double absolute_scale = std::fabs(rhs);
+            for (std::int32_t k = begin; k < end; ++k) {
+                const auto kk = static_cast<std::size_t>(k);
+                const auto jj = static_cast<std::size_t>(lp.A.col_idx()[kk]);
+                const double coefficient = lp.A.values()[kk];
+                if (problem.variable_types[jj] == VariableType::CONTINUOUS ||
+                    !std::isfinite(coefficient) || !std::isfinite(lower[jj]) ||
+                    !std::isfinite(upper[jj])) {
+                    valid = false;
+                    break;
+                }
+                const long double normalized = sign * static_cast<long double>(coefficient);
+                const long double first = normalized * static_cast<long double>(lower[jj]);
+                const long double second = normalized * static_cast<long double>(upper[jj]);
+                if (!std::isfinite(normalized) || !std::isfinite(first) ||
+                    !std::isfinite(second)) {
+                    valid = false;
+                    break;
+                }
+                minimum_activity += std::min(first, second);
+                absolute_scale += std::fabs(first) + std::fabs(second);
+                if (!std::isfinite(minimum_activity) || !std::isfinite(absolute_scale)) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid) continue;
+
+            for (std::int32_t k = begin; k < end; ++k) {
+                const auto kk = static_cast<std::size_t>(k);
+                const auto variable = lp.A.col_idx()[kk];
+                const auto jj = static_cast<std::size_t>(variable);
+                const long double coefficient =
+                    sign * static_cast<long double>(lp.A.values()[kk]);
+                if (coefficient == 0.0L) continue;
+
+                const long double own_lower =
+                    std::min(coefficient * static_cast<long double>(lower[jj]),
+                             coefficient * static_cast<long double>(upper[jj]));
+                const long double remainder = minimum_activity - own_lower;
+                const long double numerator = rhs - remainder;
+                if (!std::isfinite(remainder) || !std::isfinite(numerator)) continue;
+
+                const long double quotient = numerator / coefficient;
+                if (!std::isfinite(quotient)) continue;
+                const long double error =
+                    (kMachineGuard + kRelativeGuard) *
+                    (1.0L + absolute_scale + std::fabs(numerator)) /
+                    std::max(1.0L, std::fabs(coefficient));
+                if (!std::isfinite(error)) continue;
+
+                double candidate_lower = lower[jj];
+                double candidate_upper = upper[jj];
+                if (coefficient > 0.0L) {
+                    const long double outward = quotient + error;
+                    if (outward < -static_cast<long double>(kExactIntegerLimit) ||
+                        outward > static_cast<long double>(kExactIntegerLimit)) {
+                        continue;
+                    }
+                    candidate_upper = std::floor(static_cast<double>(outward));
+                } else {
+                    const long double outward = quotient - error;
+                    if (outward < -static_cast<long double>(kExactIntegerLimit) ||
+                        outward > static_cast<long double>(kExactIntegerLimit)) {
+                        continue;
+                    }
+                    candidate_lower = std::ceil(static_cast<double>(outward));
+                }
+                const double new_lower = std::max(lower[jj], candidate_lower);
+                const double new_upper = std::min(upper[jj], candidate_upper);
+                if (new_lower > new_upper) return false;
+                if (new_lower > lower[jj] || new_upper < upper[jj]) {
+                    lower[jj] = new_lower;
+                    upper[jj] = new_upper;
+                    ++tightenings;
+                }
+            }
+        }
+        if (tightenings == pass_start) break;
+    }
+    return bounds_are_valid(lower, upper);
+}
+
 bool feasible_point(const MilpProblem& problem, const std::vector<double>& x,
                     const std::vector<double>& lower, const std::vector<double>& upper,
                     double feasibility_tolerance, ParallelMode parallel_mode) {
@@ -1604,6 +1733,13 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
         if (options.enable_integer_equality_propagation &&
             !propagate_integer_equality_bounds(problem, lower, upper,
                                                solution.integer_bound_tightenings)) {
+            ++solution.nodes_pruned;
+            ++solution.integer_propagation_prunes;
+            continue;
+        }
+        if (options.enable_integer_inequality_propagation &&
+            !propagate_integer_inequality_bounds(problem, lower, upper,
+                                                  solution.integer_bound_tightenings)) {
             ++solution.nodes_pruned;
             ++solution.integer_propagation_prunes;
             continue;

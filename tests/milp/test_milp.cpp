@@ -242,6 +242,52 @@ SIHPS_TEST(milp_integer_inequality_rounding_handles_negative_g_rows) {
     SIHPS_ASSERT_EQ(result.nodes_processed, 1);
 }
 
+SIHPS_TEST(milp_integer_inequality_propagation_tightens_finite_box) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(
+        1, 2, {Triplet{0, 0, 2.0}, Triplet{0, 1, 3.0}});
+    lp.obj = {-1.0, -1.0};
+    lp.rhs = {5.0};
+    lp.row_types = {'L'};
+    lp.lower = {0.0, 0.0};
+    lp.upper = {10.0, 10.0};
+    sihps::apply_default_row_bounds(lp);
+
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    options.enable_integer_inequality_propagation = true;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER, VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, -2.0, 1e-8);
+    SIHPS_ASSERT_TRUE(result.integer_bound_tightenings >= 2);
+}
+
+SIHPS_TEST(milp_integer_inequality_propagation_handles_lower_side) {
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 2.0}});
+    lp.obj = {1.0};
+    lp.rhs = {5.0};
+    lp.row_types = {'G'};
+    lp.lower = {0.0};
+    lp.upper = {10.0};
+    sihps::apply_default_row_bounds(lp);
+
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.enable_root_cover_cuts = false;
+    options.enable_integer_inequality_propagation = true;
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::OPTIMAL);
+    SIHPS_ASSERT_NEAR(result.objective_value, 3.0, 1e-8);
+    SIHPS_ASSERT_NEAR(result.x[0], 3.0, 0.0);
+    SIHPS_ASSERT_TRUE(result.integer_bound_tightenings >= 1);
+}
+
 SIHPS_TEST(milp_root_integer_rounding_cut_closes_fractional_all_integer_row) {
     LpProblem lp;
     lp.A = CSRMatrix::from_triplets(

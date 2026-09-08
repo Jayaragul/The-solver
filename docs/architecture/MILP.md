@@ -105,6 +105,17 @@ without changing any integer-feasible point; each change is reported as
 `MilpSolution::integer_rhs_tightenings`. Ranged rows and mixed continuous rows
 are intentionally skipped until their transformations have equivalent proofs.
 
+An additional opt-in interval propagator, controlled by
+`MilpSolverOptions::enable_integer_inequality_propagation`, derives integer
+variable bounds from one-sided rows whose terms are all finite-bounded integer
+variables. It computes the minimum contribution of the other terms and rounds
+the resulting quotient outward with a floating-point error envelope. Continuous
+terms, ranged rows, non-finite bounds, large rows, and overflow-prone data are
+skipped. This scans node rows and therefore remains disabled by default: the
+10-second MIPLIB gate improved only the `gen-ip002` incumbent while increasing
+node work on all four tested hard cases
+([ablation record](../../bench/results/MIPLIB_INTEGER_INEQUALITY_PROPAGATION_ABLATION_10S.md)).
+
 **Optional cold-start ablation:** `MilpSolverOptions::warm_start_node_relaxations`
 (`docs/architecture/LP.md` §8) skips this presolve step for non-root nodes
 entirely, constructing `Simplex` directly and seating the parent's exported

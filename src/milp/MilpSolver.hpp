@@ -114,6 +114,11 @@ struct MilpSolverOptions {
     bool enable_integer_gcd_tightening = true;
     bool enable_integer_equality_propagation = true;
     bool enable_integer_inequality_rounding = true;
+    // Optional interval bound propagation for one-sided rows containing only
+    // finite-bounded integer terms. It is staged behind a benchmark gate:
+    // unlike the lattice-RHS rounding above, this scans row intervals at
+    // every node and can trade propagation strength for per-node overhead.
+    bool enable_integer_inequality_propagation = false;
 };
 
 struct MilpSolution {

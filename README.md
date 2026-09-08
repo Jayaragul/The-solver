@@ -271,6 +271,9 @@ zero dual bound; this is recorded in
 The complete production-settings refresh is retained in
 [MIPLIB_PSEUDOCOST_PRODUCTION_REFRESH_10S](bench/results/MIPLIB_PSEUDOCOST_PRODUCTION_REFRESH_10S.md),
 with the full machine-readable output alongside it.
+The separately gated integer-inequality propagation experiment is recorded in
+[MIPLIB_INTEGER_INEQUALITY_PROPAGATION_ABLATION_10S](bench/results/MIPLIB_INTEGER_INEQUALITY_PROPAGATION_ABLATION_10S.md);
+it remains opt-in because its extra node work did not produce a net benchmark gain.
 
 The first external QP baseline is [Maros–Mészáros QP 10](bench/results/MAROS_MESZAROS_QP_10.md).
 The original baseline records its initial one proven optimum; the optimized
