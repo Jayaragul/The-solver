@@ -348,6 +348,37 @@ SIHPS_TEST(milp_opt_in_feasibility_pump_proposes_certified_incumbent) {
     SIHPS_ASSERT_TRUE(result.feasibility_pump_lp_relaxations >= 1);
 }
 
+SIHPS_TEST(milp_feasibility_pump_reaches_deterministic_anticycle_break) {
+    // The LP point x=.5 rounds to one, but the equality x=.5 has no integer
+    // solution.  A repeated projection must therefore reach the pump's
+    // deterministic target-flip branch instead of returning after one LP.
+    LpProblem lp;
+    lp.A = CSRMatrix::from_triplets(1, 1, {Triplet{0, 0, 1.0}});
+    lp.obj = {0.0};
+    lp.rhs = {0.5};
+    lp.row_types = {'E'};
+    lp.lower = {0.0};
+    lp.upper = {1.0};
+    sihps::apply_default_row_bounds(lp);
+
+    MilpSolverOptions options;
+    options.use_rounding_heuristic = false;
+    options.use_feasibility_pump = true;
+    options.feasibility_pump_max_iterations = 3;
+    options.feasibility_pump_max_lp_relaxations = 3;
+    options.enable_root_cover_cuts = false;
+    options.enable_root_integer_rounding_cuts = false;
+    options.enable_integer_equality_propagation = false;
+    options.enable_integer_gcd_tightening = false;
+    options.enable_integer_inequality_rounding = false;
+
+    const auto result = sihps::solve_milp(
+        MilpProblem{std::move(lp), {VariableType::INTEGER}}, options);
+
+    SIHPS_ASSERT_TRUE(result.status == MilpStatus::INFEASIBLE);
+    SIHPS_ASSERT_TRUE(result.feasibility_pump_lp_relaxations >= 2);
+}
+
 SIHPS_TEST(milp_optional_coefficient_rounding_cut_is_valid) {
     // 1.5 x <= 1.9 with integer x is strengthened safely to x <= 1.
     // The ordinary integer-RHS cut cannot fire because the coefficient is
