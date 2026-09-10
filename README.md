@@ -283,6 +283,11 @@ refresh ([MAROS_MESZAROS_QP_RELEASE_REFRESH](bench/results/MAROS_MESZAROS_QP_REL
 now certifies two and retains eight explicit QP limits. QPLIB remains an
 explicitly unclaimed future benchmark.
 
+The bounded CPU working-set fallback is documented in the negative/targeted
+ablation [QP_ACTIVE_WORKING_SET_ABLATION](bench/results/QP_ACTIVE_WORKING_SET_ABLATION.md);
+it is retained only behind its independent KKT verifier and has not yet
+improved the external QP limits.
+
 The measured native CPU parallel check is [QP_THREADS](bench/results/QP_THREADS.md);
 it records identical objective/residual results across thread counts and shows
 the adaptive sparse threshold keeping eight threads within 0.9% of serial on a
