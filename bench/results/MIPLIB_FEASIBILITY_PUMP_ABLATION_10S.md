@@ -18,9 +18,13 @@ coefficient-floor cuts.
 
 The bounded pump is implemented behind `use_feasibility_pump` and every
 candidate still passes the original-model feasibility and integrality gate.
-This gate is negative: it does not improve the production rounding heuristic
-and remains disabled by default. A stronger future version needs objective
-perturbation and a repair/anti-cycling strategy before another adoption test.
+The anti-cycling projection is now reachable when a pump projection returns
+the same rounded target; it flips the most fractional integer target within
+the node box and continues up to the configured iteration cap. The focused
+`markshare2` and `gen-ip002` reruns still produced no incumbent improvement
+within the 10-second budget, so this gate remains negative and the pump stays
+disabled by default. A stronger future version needs objective perturbation
+and a repair strategy before another adoption test.
 
 An objective tie-break is available through
 `feasibility_pump_objective_weight`. On `gen-ip002`, weights `0.1` and `1.0`

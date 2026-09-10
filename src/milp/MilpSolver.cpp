@@ -1617,7 +1617,12 @@ MilpSolution solve_milp(const MilpProblem& problem, const MilpSolverOptions& opt
             }
             const std::vector<double> next_target = rounded_point(
                 problem, candidate, starting_lower, starting_upper);
-            if (next_target == target) return;
+            /* Do not stop on a fixed point: the next iteration deliberately
+               enters the deterministic cycle-break branch above, which flips
+               the most fractional integer target that still has room in the
+               node box.  Returning here made that anti-cycling logic
+               unreachable whenever the first projection reproduced its
+               rounded target. */
             target = next_target;
         }
     };
