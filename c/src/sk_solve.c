@@ -692,7 +692,21 @@ static int qp_active_working_set(const sk_model *m, const sk_options *o,
                 }
             }
         }
-        if (!qp_dense_solve(kmat, rhs, dim)) goto done;
+        if (!qp_dense_solve(kmat, rhs, dim)) {
+            /* Active rows can be redundant after a first-order iterate
+               reaches a degenerate vertex.  Drop the most recently added
+               inequality and rebuild the smaller working set; equality rows
+               are never discarded here. */
+            int remove = na - 1;
+            while (remove >= 0 && active[remove].kind == 4) --remove;
+            if (remove < 0) goto done;
+            if (active[remove].kind < 2) var_active[active[remove].index] = 0;
+            else row_active[active[remove].index] = 0;
+            memmove(&active[remove], &active[remove + 1],
+                    (size_t)(na - remove - 1) * sizeof(active_constraint));
+            --na;
+            continue;
+        }
         memset(step, 0, (size_t)n * sizeof(double));
         for (i = 0; i < nf; ++i) {
             step[free_var[i]] = rhs[i];
