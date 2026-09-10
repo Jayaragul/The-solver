@@ -623,13 +623,13 @@ static int qp_active_working_set(const sk_model *m, const sk_options *o,
         (!activity && r) || (!gradient && n) || !kmat || !rhs || (!step && n) ||
         !active || (!var_active && n) || (!row_active && r) || (!free_var && n)) goto done;
 
-    memcpy(orig_x, x, (size_t)n * sizeof(double));
-    memcpy(orig_y, y, (size_t)r * sizeof(double));
+    if (n) memcpy(orig_x, x, (size_t)n * sizeof(double));
+    if (r) memcpy(orig_y, y, (size_t)r * sizeof(double));
     for (j = 0; j < n; ++j) {
         for (p = m->Q->p[j]; p < m->Q->p[j + 1]; ++p)
             h[(size_t)m->Q->i[p] * (size_t)n + (size_t)j] += m->Q->x[p];
         for (p = m->A.p[j]; p < m->A.p[j + 1]; ++p)
-            arow[(size_t)m->A.i[p] * (size_t)n + (size_t)j] = m->A.x[p];
+            arow[(size_t)m->A.i[p] * (size_t)n + (size_t)j] += m->A.x[p];
     }
     csc_mv(&m->A, x, activity);
     if (row_violation(m, activity) > 100.0 * o->primal_tol) goto done;
