@@ -1,6 +1,8 @@
 #include "sankhya.h"
 #include "sankhya_cuda.h"
 
+#include <cuda_runtime.h>
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -68,7 +70,7 @@ void usage(const char* program)
 {
     std::fprintf(stderr,
         "usage: %s model.qps [--iterations N] [--time-limit S] "
-        "[--theta T] [--tolerance E] [--check-every N]\n", program);
+        "[--theta T] [--tolerance E] [--check-every N] [--device N]\n", program);
 }
 
 } // namespace
@@ -77,6 +79,7 @@ int main(int argc, char** argv)
 {
     if (argc < 2) { usage(argv[0]); return 64; }
     const char* path = argv[1];
+    int device = 0;
     /* This driver always passes explicit diagonal steps.  tau and sigma are
        intentionally zero: they are fallback scalars for the non-preconditioned
        APIs and must not be reported as active QP parameters here. */
@@ -91,8 +94,27 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--theta"))      settings.theta = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--tolerance"))  settings.tolerance = std::atof(argv[++i]);
         else if (!std::strcmp(argv[i], "--check-every")) settings.check_every = std::atoi(argv[++i]);
+        else if (!std::strcmp(argv[i], "--device"))     device = std::atoi(argv[++i]);
         else { usage(argv[0]); return 64; }
     }
+
+    cudaError_t device_status = cudaSetDevice(device);
+    if (device_status != cudaSuccess) {
+        std::fprintf(stderr, "cannot select CUDA device %d: %s\n", device,
+                     cudaGetErrorString(device_status));
+        return 1;
+    }
+    cudaDeviceProp device_properties{};
+    device_status = cudaGetDeviceProperties(&device_properties, device);
+    if (device_status != cudaSuccess) {
+        std::fprintf(stderr, "cannot query CUDA device %d: %s\n", device,
+                     cudaGetErrorString(device_status));
+        return 1;
+    }
+    std::fprintf(stderr, "cuda_device=%d name=\"%s\" compute=%d.%d global_mem_mb=%.0f\n",
+                 device, device_properties.name, device_properties.major,
+                 device_properties.minor,
+                 static_cast<double>(device_properties.totalGlobalMem) / (1024.0 * 1024.0));
 
     sk_model model;
     sk_model_init(&model);
