@@ -262,6 +262,10 @@ the root-cut-round experiment in [MILP_ROOT_CUT_ROUNDS](bench/results/MILP_ROOT_
 The focused cover-cut ablation is recorded in
 [MILP_COVER_CUT](bench/results/MILP_COVER_CUT.md); it measures the bundled
 binary smoke instance with cuts enabled and disabled under the same limit.
+The focused [`pk1`] combined-heuristic ablation
+(bench/results/MIPLIB_PK1_COMBINED_HEURISTICS_10S.md) improves its measured
+incumbent from 44 to 21, but remains an optional, non-promoted configuration
+until it clears a repeated full-subset gate.
 The current hard-instance evidence is retained in the [`markshare2`
 diagnostic](bench/results/MIPLIB_MARKSHARE2_DIAGNOSTIC.md), [`pk1` diagnostic](bench/results/MIPLIB_PK1_DIAGNOSTIC.md),
 and [branching ablation](bench/results/MIPLIB_MARKSHARE2_BRANCHING_ABLATION.md);
