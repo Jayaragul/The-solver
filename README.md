@@ -266,6 +266,8 @@ The focused [`pk1`] combined-heuristic ablation
 (bench/results/MIPLIB_PK1_COMBINED_HEURISTICS_10S.md) improves its measured
 incumbent from 44 to 21, but remains an optional, non-promoted configuration
 until it clears a repeated full-subset gate.
+The full-subset rejection record is [MIPLIB_COMBINED_HEURISTICS_10S](bench/results/MIPLIB_COMBINED_HEURISTICS_10S.md):
+the combined settings remain at 9/19 exact and are not production defaults.
 The current hard-instance evidence is retained in the [`markshare2`
 diagnostic](bench/results/MIPLIB_MARKSHARE2_DIAGNOSTIC.md), [`pk1` diagnostic](bench/results/MIPLIB_PK1_DIAGNOSTIC.md),
 and [branching ablation](bench/results/MIPLIB_MARKSHARE2_BRANCHING_ABLATION.md);

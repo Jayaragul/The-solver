@@ -126,6 +126,11 @@ int main(int argc, char** argv) {
     const fs::path instance_dir = argc > 1 ? argv[1] : "data/miplib2017_small";
     const fs::path solution_path = argc > 2 ? argv[2] : instance_dir / "miplib2017-v36.solu";
     const std::string selected_instance = argc > 3 ? argv[3] : "";
+    // Use '-' as an explicit, shell-safe spelling for the full directory.
+    // An empty quoted argument is not preserved consistently by Windows
+    // command wrappers, which previously made the documented full-sweep
+    // invocation silently select zero instances.
+    const bool select_all = selected_instance.empty() || selected_instance == "-";
     const double time_limit = argc > 4 ? std::stod(argv[4]) : 60.0;
     const std::string branching_rule = argc > 5 ? argv[5] : "pseudocost";
     // docs/architecture/LP.md \S1/\S2, MilpSolverOptions::
@@ -151,7 +156,7 @@ int main(int argc, char** argv) {
     std::vector<fs::path> instances;
     for (const auto& entry : fs::directory_iterator(instance_dir)) {
         if (entry.path().extension() == ".mps" &&
-            (selected_instance.empty() || entry.path().stem().string() == selected_instance)) {
+            (select_all || entry.path().stem().string() == selected_instance)) {
             instances.push_back(entry.path());
         }
     }
