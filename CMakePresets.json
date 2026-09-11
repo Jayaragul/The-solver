@@ -15,7 +15,9 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_CUDA_ARCHITECTURES": "86;89",
         "SANKHYA_BUILD_TESTS": "ON",
-        "SANKHYA_ENABLE_CUDA": "ON"
+        "SANKHYA_ENABLE_CUDA": "ON",
+        "SIHPS_BUILD_TESTS": "ON",
+        "SIHPS_BUILD_BENCHMARKS": "ON"
       }
     },
     {
@@ -27,7 +29,9 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CUDA_ARCHITECTURES": "86;89",
         "SANKHYA_BUILD_TESTS": "ON",
-        "SANKHYA_ENABLE_CUDA": "ON"
+        "SANKHYA_ENABLE_CUDA": "ON",
+        "SIHPS_BUILD_TESTS": "ON",
+        "SIHPS_BUILD_BENCHMARKS": "ON"
       }
     }
   ],
