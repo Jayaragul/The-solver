@@ -218,7 +218,8 @@ build\native\sankhya_qp_cuda.exe bench\smoke\tiny_qp.qps --iterations 100000 --d
 ```
 
 The CLI prints the selected NVIDIA device name, compute capability, and global
-memory before solving; use `--device N` to select another visible GPU.
+memory before solving; use `--device N` to select another visible GPU. Its JSON
+record repeats the device index and name for machine-readable provenance.
 
 Small QPs may still route through exact CPU shortcuts, so near-zero GPU usage
 in Task Manager is expected; GPU acceleration is reserved for the repeated

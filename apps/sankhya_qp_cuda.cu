@@ -215,11 +215,12 @@ int main(int argc, char** argv)
     checked.ncol = model.ncol;
     checked.nrow = model.nrow;
     const sk_status verify_status = rc == 0 ? sk_verify(&model, &checked) : SK_ERR_NUMERIC;
-    std::printf("{\"file\":\"%s\",\"status\":%d,\"iterations\":%d,\"objective\":%.12g,"
+    std::printf("{\"file\":\"%s\",\"cuda_device\":%d,\"cuda_name\":\"%s\",\"status\":%d,\"iterations\":%d,\"objective\":%.12g,"
                 "\"primal_inf\":%.3e,\"kkt_residual\":%.3e,\"solve_seconds\":%.6f,\"independent_primal_status\":\"%s\",\"independent_objective\":%.12g,"
                 "\"independent_primal_inf\":%.3e,\"independent_dual_inf\":%.3e,\"independent_complementarity\":%.3e,"
                 "\"gpu_dual_inf\":%.3e,\"gpu_complementarity\":%.3e}\n",
-        path, gpu_result.status, gpu_result.iterations, gpu_result.objective + model.objshift,
+        path, device, device_properties.name, gpu_result.status, gpu_result.iterations,
+        gpu_result.objective + model.objshift,
         gpu_result.maximum_row_violation, gpu_result.maximum_kkt_residual,
         solve_seconds, sk_status_name(verify_status), checked.objective,
         checked.primal_infeasibility, checked.dual_infeasibility, checked.complementarity,
