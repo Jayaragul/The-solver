@@ -28,6 +28,10 @@ target_link_libraries(sankhya_pdhg PRIVATE sankhya_core sankhya_cuda)
 target_include_directories(sankhya_pdhg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../c/include)
+add_test(NAME sankhya_cuda_pdhg_cli_smoke
+    COMMAND sankhya_pdhg
+        ${CMAKE_SOURCE_DIR}/bench/smoke/unit_lp.mps
+        --iterations 5000 --tolerance 1e-5 --device 0)
 
 add_executable(sankhya_qp_cuda ../apps/sankhya_qp_cuda.cu)
 target_link_libraries(sankhya_qp_cuda PRIVATE sankhya_core sankhya_cuda)
