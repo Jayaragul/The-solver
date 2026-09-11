@@ -17,6 +17,10 @@
     and a `REPEAT_VARIANCE` marker if status or incumbent objective changes.
     A median is never treated as a certification proof.
 
+For the MIPLIB directory sweep, pass `-` as the instance selector. This
+shell-safe spelling avoids Windows command wrappers dropping an empty quoted
+argument.
+
 ## Native collection command
 
 Use the C harness for a frozen file list:
