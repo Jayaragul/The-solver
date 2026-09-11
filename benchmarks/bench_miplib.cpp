@@ -313,10 +313,13 @@ int main(int argc, char** argv) {
                                                     : "MISMATCH"));
             std::cout << std::left << std::setw(18) << name << std::right << std::setw(12)
                       << status_name(result.status) << std::setw(18) << std::setprecision(12)
-                      << (result.has_incumbent ? result.objective_value : 0.0) << " "
+                      << (result.has_incumbent ? result.objective_value
+                                               : std::numeric_limits<double>::quiet_NaN()) << " "
                       << std::setw(18)
                       << (reference.status == "INFEASIBLE" ? 0.0 : reference.objective) << " "
-                      << std::setw(12) << (std::isfinite(error) ? error : 0.0) << " "
+                      << std::setw(12) << (std::isfinite(error)
+                                                ? error
+                                                : std::numeric_limits<double>::quiet_NaN()) << " "
                       << std::setw(10)
                       << result.nodes_processed << std::setw(10) << result.lp_relaxations
                       << std::setw(10) << std::fixed << std::setprecision(3) << seconds
