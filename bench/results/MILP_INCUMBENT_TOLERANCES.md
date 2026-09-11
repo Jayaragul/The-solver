@@ -71,7 +71,7 @@ cmake --build --preset cuda-debug --target sihps_tests
 build\cmake-cuda\tests\sihps_tests.exe milp_
 build\cmake-cuda\tests\sihps_tests.exe
 cmake --build --preset cuda-release --target bench_miplib
-build\cmake-cuda-release\benchmarks\bench_miplib.exe data\miplib2017_small data\miplib2017_small\miplib2017-v36.solu "" 10 reliability on serial
+build\cmake-cuda-release\benchmarks\bench_miplib.exe data\miplib2017_small data\miplib2017_small\miplib2017-v36.solu - 10 reliability on serial
 ```
 
 The sweep exits 1 because 13 instances do not match a certified reference
