@@ -37,7 +37,7 @@ target_include_directories(sankhya_qp_cuda PRIVATE
 add_test(NAME sankhya_cuda_general_qp_smoke
     COMMAND sankhya_qp_cuda
         ${CMAKE_SOURCE_DIR}/bench/smoke/tiny_qp.qps
-        --iterations 100000 --tolerance 1e-5)
+        --iterations 100000 --tolerance 1e-5 --device 0)
 add_test(NAME sankhya_cuda_nonconvex_qp_guard
     COMMAND sankhya_qp_cuda
         ${CMAKE_SOURCE_DIR}/bench/smoke/nonconvex_qp.qps)
