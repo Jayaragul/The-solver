@@ -2,6 +2,8 @@
 #include "sankhya_verify.h"
 #include "sankhya_cuda.h"
 
+#include <cuda_runtime.h>
+
 #include <climits>
 #include <chrono>
 #include <cmath>
@@ -56,7 +58,7 @@ double estimate_operator_norm(const SankhyaCSC* matrix, int iterations) {
 }
 
 void usage(const char* program) {
-    std::fprintf(stderr, "usage: %s model.mps [--iterations N] [--tau T] [--sigma S] [--tolerance E]\n", program);
+    std::fprintf(stderr, "usage: %s model.mps [--iterations N] [--tau T] [--sigma S] [--tolerance E] [--device N]\n", program);
 }
 
 }  // namespace
@@ -64,14 +66,33 @@ void usage(const char* program) {
 int main(int argc, char** argv) {
     if (argc < 2) { usage(argv[0]); return 64; }
     SankhyaCudaLPSettings settings{100000, 100, 0.0, 0.0, 1.0, 1e-6};
+    int device = 0;
     for (int i = 2; i < argc; i += 2) {
         if (i + 1 >= argc) { usage(argv[0]); return 64; }
         if (std::strcmp(argv[i], "--iterations") == 0) settings.max_iterations = std::atoi(argv[i + 1]);
         else if (std::strcmp(argv[i], "--tau") == 0) settings.tau = std::atof(argv[i + 1]);
         else if (std::strcmp(argv[i], "--sigma") == 0) settings.sigma = std::atof(argv[i + 1]);
         else if (std::strcmp(argv[i], "--tolerance") == 0) settings.tolerance = std::atof(argv[i + 1]);
+        else if (std::strcmp(argv[i], "--device") == 0) device = std::atoi(argv[i + 1]);
         else { usage(argv[0]); return 64; }
     }
+    cudaError_t device_status = cudaSetDevice(device);
+    if (device_status != cudaSuccess) {
+        std::fprintf(stderr, "cannot select CUDA device %d: %s\n", device,
+                     cudaGetErrorString(device_status));
+        return 1;
+    }
+    cudaDeviceProp device_properties{};
+    device_status = cudaGetDeviceProperties(&device_properties, device);
+    if (device_status != cudaSuccess) {
+        std::fprintf(stderr, "cannot query CUDA device %d: %s\n", device,
+                     cudaGetErrorString(device_status));
+        return 1;
+    }
+    std::fprintf(stderr, "cuda_device=%d name=\"%s\" compute=%d.%d global_mem_mb=%.0f\n",
+                 device, device_properties.name, device_properties.major,
+                 device_properties.minor,
+                 static_cast<double>(device_properties.totalGlobalMem) / (1024.0 * 1024.0));
     SankhyaLPModel model;
     sankhya_lp_model_init(&model);
     if (sankhya_lp_read_mps(argv[1], &model) != SANKHYA_OK) {
