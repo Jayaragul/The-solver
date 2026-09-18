@@ -42,6 +42,24 @@ the known objective `-4`. These are accelerator capability records, not a
 claim that the first-order GPU path replaces the certificate-bearing CPU
 simplex/KKT engines.
 
+## Current device-provenance check
+
+Refreshed on 2026-09-18 with the CUDA Release binary and
+`--iterations 300000 --device 0` on the NVIDIA GeForce RTX 3050 Laptop GPU
+(CUDA 13.3, compute capability 8.6). The JSON record includes the selected
+device and independent host-side KKT residuals:
+
+| Instance | Status | Iterations | Objective | Primal inf | Dual inf | Complementarity | Seconds |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| QAFIRO | converged | 2,900 | -1.59078179149 | 6.690e-11 | 5.235e-10 | 1.961e-09 | 0.131017 |
+| DPKLO1 | converged | 500 | 0.370096217112 | 7.547e-11 | 8.548e-12 | 1.408e-12 | 0.019704 |
+| QPCBLEND | iteration limit | 300,000 | -0.00804972449615 | 6.460e-05 | 5.513e+00 | 4.090e-05 | 19.822451 |
+
+QAFIRO and DPKLO1 are independently certified in this run. QPCBLEND is an
+explicit non-certificate: its primal residual is small, but the dual residual
+remains large. This is the production baseline for the planned scalable sparse
+QP method, not an optimality claim.
+
 ## Fixed five-second GPU check
 
 The following use `--iterations 1000000 --time-limit 5 --tolerance 1e-5` on
