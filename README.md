@@ -139,7 +139,8 @@ native C with CUDA kernels; no Python runtime is required by the solver.
 | Native general-MIQP branch-and-bound smoke | small off-diagonal PSD integer QP reaches objective `-2`, zero proven gap | passed |
 | Native presolve smoke | proves `x >= 2` infeasible under `0 <= x <= 1`; simplex singleton tightening starts `x >= 2` at its implied bound | passed |
 | Native model-validation smoke | malformed CSC endpoint and non-finite coefficient are rejected before solve | passed |
-| Full CMake test suite | 31/31 C and CUDA smoke targets passed; 159/159 C++/CUDA unit tests passed | passed |
+| Full CMake test suite | 32/32 C and CUDA smoke targets passed; 159/159 C++/CUDA unit tests passed | passed |
+| QP termination-gate regression | CPU QAFIRO now certifies with dual residual `2.368e-09`; QPCBLEND remains an explicit limit | passed |
 | MIPLIB results | classic five-instance native record; 3/5 proven optimal | recorded |
 | Binary-slack MILP repair | `markshare2` incumbent 231 → 189 in a repeated 10-second native protocol; dual bound unchanged | recorded |
 | MIPLIB / HiGHS comparison | frozen five-instance comparison with explicit gap-tolerance semantics | recorded |
@@ -334,7 +335,7 @@ Completed foundation:
 1. Native C model ownership/validation, sparse LU, MPS/QPS parsing, revised
    simplex, MILP branch-and-bound/cuts, guarded CPU QP paths, and CUDA
    SpMV/PDHG/QP paths are implemented and covered by 159 C++/CUDA unit tests
-   plus 31 native C/CUDA smoke tests (31/31 Release targets passed).
+   plus 32 native C/CUDA smoke tests (32/32 Release targets passed).
 2. Frozen Netlib, MIPLIB, Maros–Mészáros QP, AFIRO, CUDA, and HiGHS comparison
    records are published with independent residual checks and retained limits.
 3. The source-level comparison with the referenced LP-and-MLIP-Solver project,

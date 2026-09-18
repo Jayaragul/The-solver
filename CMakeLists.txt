@@ -80,6 +80,17 @@ if(SANKHYA_BUILD_TESTS)
         target_link_libraries(sankhya_${test_name} PRIVATE sankhya_core)
         add_test(NAME sankhya_${test_name} COMMAND sankhya_${test_name})
     endforeach()
+    if(TARGET sk_qp AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bench/data/qp_test_problems/QPS_Files/QAFIRO.QPS")
+        add_test(
+            NAME sankhya_qafiro_cpu_qp_smoke
+            COMMAND sk_qp
+                    "${CMAKE_CURRENT_SOURCE_DIR}/bench/data/qp_test_problems/QPS_Files/QAFIRO.QPS"
+                    --iter-limit 100000 --quiet)
+        set_tests_properties(sankhya_qafiro_cpu_qp_smoke PROPERTIES
+            PASS_REGULAR_EXPRESSION "\\\"status\\\":\\\"optimal\\\""
+            FAIL_REGULAR_EXPRESSION "\\\"status\\\":\\\"(iteration_limit|numeric_failure|solve_error)\\\""
+        )
+    endif()
 endif()
 
 if(SANKHYA_ENABLE_CUDA)

@@ -19,11 +19,17 @@ positive-semidefinite QP intentionally above the exhaustive active-pattern
 cap. It passes with the exact objective and KKT residuals expected by the
 hand-derived solution.
 
+The CPU PDHG termination gate now also runs the independent QP KKT verifier
+before accepting an apparently stable iterate. This prevents a false early
+stop on QAFIRO, where iterate stability previously coexisted with a large
+dual residual. The new `sankhya_qafiro_cpu_qp_smoke` CTest regression covers
+that case.
+
 ## External constrained checks
 
 | Instance | Rows | Cols | Status | Objective | Primal inf | Dual inf | Complementarity |
 |---|---:|---:|---|---:|---:|---:|---:|
-| `QAFIRO` | 27 | 32 | `iteration_limit` | -1.59078237517 | 8.995e-08 | 8.650e+00 | 6.356e-07 |
+| `QAFIRO` | 27 | 32 | `optimal` | -1.59078179543 | 4.742e-10 | 2.368e-09 | 1.367e-09 |
 | `DUAL1` | 1 | 85 | `iteration_limit` | 0.0350129721602 | 9.796e-08 | 3.705e-02 | 2.327e-05 |
 
 These two runs do not show a benchmark coverage or convergence improvement;

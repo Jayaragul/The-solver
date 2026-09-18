@@ -927,6 +927,7 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
         if (o->time_limit > 0.0 && sk_wall_seconds() - start >= o->time_limit) break;
         if (iteration % check_every == 0 || iteration == maximum_iterations) {
             double step = 0.0, scale = 1.0;
+            int qp_kkt_ready = 1;
             csc_mv(&m->A, x, activity);
             for (j = 0; j < n; ++j) {
                 const double delta = fabs(x_new[j] - x[j]); /* x_new equals x after copy: use x_bar relationship below */
@@ -935,8 +936,20 @@ static sk_status solve_continuous(const sk_model *m, const sk_options *options, 
             }
             /* x_bar = 2*x - x_old, hence |x-x_old| = |x_bar-x|. */
             for (j = 0; j < n; ++j) if (fabs(x_bar[j] - x[j]) > step) step = fabs(x_bar[j] - x[j]);
+            /* Iterate stability is not an optimality certificate for a QP:
+               PDHG can settle while the dual stationarity residual is still
+               large.  Use the same independent KKT gate as the final result
+               verifier before allowing an early exit. */
+            if (m->Q) {
+                const double kkt_score = qp_kkt_score(m, x, y);
+                qp_kkt_ready = isfinite(kkt_score) &&
+                               kkt_score <= 100.0 * (o->primal_tol + 2.0 * o->dual_tol);
+            }
             if (row_violation(m, activity) <= o->primal_tol && step <= o->primal_tol * scale &&
-                dual_step <= o->dual_tol * (1.0 + anorm)) { converged = 1; break; }
+                dual_step <= o->dual_tol * (1.0 + anorm) && qp_kkt_ready) {
+                converged = 1;
+                break;
+            }
         }
     }
 
