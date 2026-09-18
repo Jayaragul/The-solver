@@ -172,6 +172,9 @@ scripts\build_windows_sm86.bat
 build\native\sankhya_pdhg.exe bench\smoke\unit_lp.mps --iterations 5000 --tolerance 1e-5
 ```
 
+The PDHG CLI also accepts `--device N` and includes the selected NVIDIA device
+in its result line for reproducible GPU provenance.
+
 The verified smoke result is `x[X]=1`, objective `1`, and zero primal violation.
 
 For the CMake CUDA build (including the correct RTX 3050 architectures), use

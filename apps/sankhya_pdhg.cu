@@ -136,8 +136,9 @@ int main(int argc, char** argv) {
     const SankhyaStatus verify_status = solve_status == 0
         ? sankhya_verify_primal(&model, solution, settings.tolerance, &verification)
         : SANKHYA_INVALID_ARGUMENT;
-    std::printf("status=%d iterations=%d objective=%.17g row_violation=%.17g step=%.17g solve_seconds=%.9g\n",
-        result.status, result.iterations, result.objective, result.maximum_row_violation, result.maximum_step, solve_seconds);
+    std::printf("status=%d iterations=%d objective=%.17g row_violation=%.17g step=%.17g solve_seconds=%.9g cuda_device=%d cuda_name=\"%s\"\n",
+        result.status, result.iterations, result.objective, result.maximum_row_violation,
+        result.maximum_step, solve_seconds, device, device_properties.name);
     if (verify_status == SANKHYA_OK) {
         std::printf("verified_feasible=%d verified_integral=%d primal_violation=%.17g\n",
             verification.feasible, verification.integral, verification.maximum_primal_violation);
